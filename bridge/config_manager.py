@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import platform
 import re
+import shutil
 import subprocess
 import time
 import urllib.error
@@ -46,6 +49,7 @@ class DS4ConfigManager:
         kv_cache_path: Path,
         metal_dir: Path,
         discovery_ttl_seconds: float = 30.0,
+        launchd_label: str = "com.dwarfstar.ds4",
     ) -> None:
         self.binary_path = binary_path
         self.telem_url = telem_url
@@ -53,6 +57,7 @@ class DS4ConfigManager:
         self.kv_cache_path = kv_cache_path
         self.metal_dir = metal_dir
         self.discovery_ttl_seconds = discovery_ttl_seconds
+        self.launchd_label = launchd_label
         self._overrides: Dict[str, Any] = {}
         self._schema_cache: Optional[Dict[str, ConfigOption]] = None
         self._schema_cache_at = 0.0
@@ -131,11 +136,15 @@ class DS4ConfigManager:
             "restart_needed": restart_needed,
         }
 
+    def key_requires_restart(self, key: str) -> bool:
+        normalized_key = self._normalize_key(key)
+        return normalized_key in self._RESTART_REQUIRED_KEYS
+
     def apply_and_restart(self, key: str, value: Any, restart_script: str) -> Dict[str, Any]:
         """Set an override and restart DS4 if the key requires it.
 
-        The restart_script is a shell command (e.g. 'bash .../restart-ds4.sh')
-        that launchctl-kickstarts the DS4 service.
+        Prefer the installed launchd service. The restart_script is retained as
+        a legacy fallback for older local setups.
         """
         normalized_key = self._normalize_key(key)
         if not normalized_key:
@@ -149,20 +158,7 @@ class DS4ConfigManager:
 
         restart_result: Dict[str, Any] = {"triggered": False, "exit_code": -1, "stdout": "", "stderr": ""}
         if restart_needed:
-            import subprocess
-            try:
-                proc = subprocess.run(
-                    ["bash", restart_script],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                restart_result["triggered"] = True
-                restart_result["exit_code"] = proc.returncode
-                restart_result["stdout"] = proc.stdout
-                restart_result["stderr"] = proc.stderr
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                restart_result["error"] = str(exc)
+            restart_result = self.restart_ds4(restart_script=restart_script)
 
         return {
             "key": normalized_key,
@@ -173,9 +169,109 @@ class DS4ConfigManager:
             "restart": restart_result,
         }
 
+    def restart_ds4(self, restart_script: Optional[str] = None) -> Dict[str, Any]:
+        """Restart DS4, preferring launchd when the LaunchAgent is loaded."""
+        if self._launchd_loaded():
+            return self._kickstart_launchd()
+
+        if restart_script and Path(restart_script).exists():
+            if platform.system() != "Darwin" or shutil.which("launchctl") is None:
+                return {
+                    "triggered": False,
+                    "method": "legacy-script",
+                    "exit_code": -1,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": "launchd is unavailable; install scripts/ds4-launchd.plist first.",
+                }
+            try:
+                proc = subprocess.run(
+                    ["bash", restart_script],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+                return {
+                    "triggered": True,
+                    "method": "legacy-script",
+                    "exit_code": proc.returncode,
+                    "stdout": proc.stdout,
+                    "stderr": proc.stderr,
+                    "command": f"bash {restart_script}",
+                }
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return {
+                    "triggered": True,
+                    "method": "legacy-script",
+                    "exit_code": -1,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": str(exc),
+                }
+
+        return {
+            "triggered": False,
+            "method": "launchd",
+            "exit_code": -1,
+            "stdout": "",
+            "stderr": "",
+            "error": f"launchd service {self.launchd_label} is not loaded.",
+        }
+
     def clear_override(self, key: str) -> bool:
         normalized_key = self._normalize_key(key)
         return self._overrides.pop(normalized_key, None) is not None
+
+    def _launchd_target(self) -> str:
+        return f"gui/{os.getuid()}/{self.launchd_label}"
+
+    def _launchd_loaded(self) -> bool:
+        if platform.system() != "Darwin" or shutil.which("launchctl") is None:
+            return False
+        try:
+            result = subprocess.run(
+                ["launchctl", "print", self._launchd_target()],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return result.returncode == 0
+
+    def _kickstart_launchd(self) -> Dict[str, Any]:
+        target = self._launchd_target()
+        command = ["launchctl", "kickstart", "-k", target]
+        try:
+            proc = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            return {
+                "triggered": True,
+                "method": "launchd",
+                "label": self.launchd_label,
+                "exit_code": proc.returncode,
+                "stdout": proc.stdout,
+                "stderr": proc.stderr,
+                "command": " ".join(command),
+            }
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {
+                "triggered": True,
+                "method": "launchd",
+                "label": self.launchd_label,
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": "",
+                "command": " ".join(command),
+                "error": str(exc),
+            }
 
     def _load_schema(self, *, force_refresh: bool) -> Dict[str, ConfigOption]:
         now = time.monotonic()

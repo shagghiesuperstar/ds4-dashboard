@@ -108,8 +108,17 @@ class ConfigUpdate(BaseModel):
 
 class BenchmarkRunRequest(BaseModel):
     suite_id: str = "quick_smoke"
+    suite: Optional[str] = None
     iterations: int = 1
     compare_label: Optional[str] = None
+    config_overrides: Optional[Dict[str, Any]] = None
+
+
+class BenchmarkCompareRequest(BaseModel):
+    suite: str = "quick_smoke"
+    iterations: int = 1
+    config_a: Any
+    config_b: Any
 
 
 class UpdateRequest(BaseModel):
@@ -168,6 +177,210 @@ def get_metrics_payload() -> Dict[str, Any]:
         "telemetry": status.get("telemetry"),
         "kv_cache": status.get("kv_cache"),
         "system": status.get("system"),
+    }
+
+
+def normalize_benchmark_config(raw: Any, fallback_label: str) -> Dict[str, Any]:
+    label = fallback_label
+    profile_id = fallback_label.lower().replace(" ", "-")
+    overrides: Dict[str, Any] = {}
+
+    if isinstance(raw, dict):
+        label = str(raw.get("label") or raw.get("name") or fallback_label)
+        profile_id = str(raw.get("id") or label.lower().replace(" ", "-"))
+        raw_overrides = raw.get("overrides") or raw.get("config_overrides") or {}
+        if isinstance(raw_overrides, dict):
+            overrides.update(raw_overrides)
+
+        model_path = raw.get("model_path") or raw.get("model") or raw.get("path")
+        if isinstance(model_path, dict):
+            model_path = model_path.get("path")
+        if model_path:
+            overrides["model"] = str(model_path)
+    elif isinstance(raw, str):
+        label = raw
+        profile_id = raw.lower().replace(" ", "-")
+        if raw.endswith((".gguf", ".ggufv2", ".ggufv3")) or "/" in raw:
+            label = Path(raw).name
+            overrides["model"] = raw
+
+    return {"id": profile_id, "label": label, "overrides": overrides}
+
+
+def restore_config_overrides(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    current = config_manager.get_overrides()
+    changed_keys = set(current) ^ set(snapshot)
+    for key in set(current).intersection(snapshot):
+        if current[key] != snapshot[key]:
+            changed_keys.add(key)
+
+    for key in list(current):
+        config_manager.clear_override(key)
+
+    applied = []
+    for key, value in snapshot.items():
+        applied.append(config_manager.set_override(key, value))
+
+    return {
+        "applied": applied,
+        "restart_needed": any(config_manager.key_requires_restart(key) for key in changed_keys),
+    }
+
+
+def apply_benchmark_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
+    applied = []
+    restart_needed = False
+    for key, value in (profile.get("overrides") or {}).items():
+        updated = config_manager.set_override(key, value)
+        applied.append(updated)
+        restart_needed = restart_needed or bool(updated.get("restart_needed"))
+
+    restart = {"triggered": False, "exit_code": 0, "stdout": "", "stderr": "", "method": "none"}
+    if restart_needed:
+        restart = config_manager.restart_ds4(restart_script=RESTART_SCRIPT)
+
+    return {"applied": applied, "restart_needed": restart_needed, "restart": restart}
+
+
+def run_benchmark_with_profile(
+    *,
+    suite_id: str,
+    iterations: int,
+    profile: Dict[str, Any],
+    compare_label: Optional[str],
+    side: str,
+) -> Dict[str, Any]:
+    apply_result = apply_benchmark_profile(profile)
+    result = benchmark_runner.run_suite(
+        suite_id,
+        iterations=iterations,
+        compare_label=compare_label or profile["label"],
+        config_overrides=profile.get("overrides") or {},
+    )
+    result["compare_side"] = side
+    result["compare_config"] = profile
+    return {"profile": profile, "apply": apply_result, "result": result}
+
+
+def metric_diff(a_value: Any, b_value: Any, *, higher_is_better: bool) -> Dict[str, Any]:
+    if a_value is None or b_value is None:
+        return {
+            "a": a_value,
+            "b": b_value,
+            "delta": None,
+            "higher_is_better": higher_is_better,
+            "improved": None,
+        }
+    if not isinstance(a_value, (int, float)) or not isinstance(b_value, (int, float)):
+        return {
+            "a": a_value,
+            "b": b_value,
+            "delta": None,
+            "higher_is_better": higher_is_better,
+            "improved": None,
+        }
+    delta = b_value - a_value
+    improved = delta > 0 if higher_is_better else delta < 0
+    if delta == 0:
+        improved = None
+    return {
+        "a": a_value,
+        "b": b_value,
+        "delta": delta,
+        "higher_is_better": higher_is_better,
+        "improved": improved,
+    }
+
+
+def compare_task_results(result_a: Dict[str, Any], result_b: Dict[str, Any]) -> list[Dict[str, Any]]:
+    tasks_a = {task["task_id"]: task for task in (result_a.get("tasks") or [])}
+    tasks_b = {task["task_id"]: task for task in (result_b.get("tasks") or [])}
+    task_rows = []
+    for task_id in sorted(set(tasks_a) | set(tasks_b)):
+        task_a = tasks_a.get(task_id) or {}
+        task_b = tasks_b.get(task_id) or {}
+        task_rows.append(
+            {
+                "task_id": task_id,
+                "title": task_b.get("title") or task_a.get("title") or task_id,
+                "passed": metric_diff(task_a.get("passed"), task_b.get("passed"), higher_is_better=True),
+                "score": metric_diff(task_a.get("score"), task_b.get("score"), higher_is_better=True),
+                "tok_s": metric_diff(task_a.get("tok_s"), task_b.get("tok_s"), higher_is_better=True),
+                "latency_seconds": metric_diff(
+                    task_a.get("latency_seconds"),
+                    task_b.get("latency_seconds"),
+                    higher_is_better=False,
+                ),
+            }
+        )
+    return task_rows
+
+
+def build_benchmark_comparison(request: BenchmarkCompareRequest) -> Dict[str, Any]:
+    suite_id = request.suite
+    iterations = max(1, min(int(request.iterations), 10))
+    profile_a = normalize_benchmark_config(request.config_a, "Config A")
+    profile_b = normalize_benchmark_config(request.config_b, "Config B")
+
+    if profile_a["id"] == profile_b["id"] and profile_a["overrides"] == profile_b["overrides"]:
+        raise ValueError("Config A and Config B must be different.")
+
+    original_overrides = config_manager.get_overrides()
+    restore_result: Optional[Dict[str, Any]] = None
+    try:
+        restore_config_overrides(original_overrides)
+        run_a = run_benchmark_with_profile(
+            suite_id=suite_id,
+            iterations=iterations,
+            profile=profile_a,
+            compare_label=f"{profile_a['label']}:{suite_id}",
+            side="a",
+        )
+        restore_config_overrides(original_overrides)
+        run_b = run_benchmark_with_profile(
+            suite_id=suite_id,
+            iterations=iterations,
+            profile=profile_b,
+            compare_label=f"{profile_b['label']}:{suite_id}",
+            side="b",
+        )
+    finally:
+        restore_result = restore_config_overrides(original_overrides)
+        if restore_result.get("restart_needed"):
+            restore_result["restart"] = config_manager.restart_ds4(restart_script=RESTART_SCRIPT)
+
+    result_a = run_a["result"]
+    result_b = run_b["result"]
+    metrics = {
+        "tok_s_avg": metric_diff(result_a.get("tok_s_avg"), result_b.get("tok_s_avg"), higher_is_better=True),
+        "latency_p50_seconds": metric_diff(
+            result_a.get("latency_p50_seconds"),
+            result_b.get("latency_p50_seconds"),
+            higher_is_better=False,
+        ),
+        "latency_p95_seconds": metric_diff(
+            result_a.get("latency_p95_seconds"),
+            result_b.get("latency_p95_seconds"),
+            higher_is_better=False,
+        ),
+        "pass_rate": metric_diff(result_a.get("pass_rate"), result_b.get("pass_rate"), higher_is_better=True),
+        "duration_seconds": metric_diff(
+            result_a.get("duration_seconds"),
+            result_b.get("duration_seconds"),
+            higher_is_better=False,
+        ),
+        "output_tokens": metric_diff(result_a.get("output_tokens"), result_b.get("output_tokens"), higher_is_better=True),
+    }
+    return {
+        "suite": suite_id,
+        "iterations": iterations,
+        "config_a": profile_a,
+        "config_b": profile_b,
+        "run_a": run_a,
+        "run_b": run_b,
+        "diffs": metrics,
+        "task_diffs": compare_task_results(result_a, result_b),
+        "restore": restore_result,
     }
 
 
@@ -253,18 +466,8 @@ async def api_apply_config(request: ConfigApplyRequest) -> Dict[str, Any]:
 @app.post("/api/restart")
 async def api_restart_ds4() -> Dict[str, Any]:
     """Restart DS4 via launchctl without changing any config."""
-    import subprocess
-    script = RESTART_SCRIPT
-    try:
-        proc = subprocess.run(["bash", script], capture_output=True, text=True, timeout=60)
-        return {
-            "ok": proc.returncode == 0,
-            "exit_code": proc.returncode,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
-        }
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"ok": False, "error": str(exc)}
+    result = config_manager.restart_ds4(restart_script=RESTART_SCRIPT)
+    return {"ok": result.get("exit_code") == 0, **result}
 
 
 @app.get("/api/config-overrides")
@@ -315,9 +518,32 @@ async def api_benchmark_suites() -> Dict[str, Any]:
 
 @app.post("/api/benchmarks/run")
 async def api_run_benchmark(request: BenchmarkRunRequest) -> Dict[str, Any]:
+    suite_id = request.suite or request.suite_id
     try:
-        result = benchmark_runner.run_suite(
-            request.suite_id,
+        if request.config_overrides:
+            original_overrides = config_manager.get_overrides()
+            profile = normalize_benchmark_config(
+                {"label": request.compare_label or "Benchmark config", "overrides": request.config_overrides},
+                "Benchmark config",
+            )
+            try:
+                result = await asyncio.to_thread(
+                    run_benchmark_with_profile,
+                    suite_id=suite_id,
+                    iterations=request.iterations,
+                    profile=profile,
+                    compare_label=request.compare_label,
+                    side="single",
+                )
+            finally:
+                restore_result = restore_config_overrides(original_overrides)
+                if restore_result.get("restart_needed"):
+                    config_manager.restart_ds4(restart_script=RESTART_SCRIPT)
+            return result["result"]
+
+        result = await asyncio.to_thread(
+            benchmark_runner.run_suite,
+            suite_id,
             iterations=request.iterations,
             compare_label=request.compare_label,
         )
@@ -329,6 +555,16 @@ async def api_run_benchmark(request: BenchmarkRunRequest) -> Dict[str, Any]:
 @app.get("/api/benchmarks/results")
 async def api_benchmark_results() -> Dict[str, Any]:
     return {"results": benchmark_runner.get_last_results()}
+
+
+@app.post("/api/benchmarks/compare")
+async def api_run_benchmark_compare(request: BenchmarkCompareRequest) -> Dict[str, Any]:
+    try:
+        return await asyncio.to_thread(build_benchmark_comparison, request)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/benchmarks/compare")
@@ -398,6 +634,13 @@ async def api_mcp_sse() -> StreamingResponse:
 
 
 if __name__ == "__main__":
+    import argparse
     import uvicorn
 
-    uvicorn.run("dashboard:app", host="127.0.0.1", port=8765, reload=True)
+    parser = argparse.ArgumentParser(description="Run the DS4 Dwarfstar Dashboard.")
+    parser.add_argument("--host", default=os.environ.get("DASHBOARD_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("DASHBOARD_PORT", "8765")))
+    parser.add_argument("--reload", action=argparse.BooleanOptionalAction, default=True)
+    args = parser.parse_args()
+
+    uvicorn.run("dashboard:app", host=args.host, port=args.port, reload=args.reload)

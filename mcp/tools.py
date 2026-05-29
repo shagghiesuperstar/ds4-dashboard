@@ -65,6 +65,11 @@ class DashboardToolRegistry:
                 },
             },
             {
+                "name": "restart_ds4",
+                "description": "Restart DS4 through the configured launchd service.",
+                "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+            },
+            {
                 "name": "update_ds4",
                 "description": "Check for or apply a DS4 binary update from GitHub releases.",
                 "inputSchema": {
@@ -101,6 +106,9 @@ class DashboardToolRegistry:
                 iterations=int(args.get("iterations", 1)),
                 compare_label=args.get("compare_label"),
             )
+        if name == "restart_ds4":
+            result = self.config_manager.restart_ds4()
+            return {"ok": result.get("exit_code") == 0, **result}
         if name == "update_ds4":
             return self.updater.update(
                 apply=bool(args.get("apply", False)),

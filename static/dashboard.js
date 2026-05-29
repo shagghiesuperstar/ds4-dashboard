@@ -8,6 +8,9 @@ const state = {
   config: null,
   schema: null,
   lastStatus: null,
+  benchmarkSuites: [],
+  models: [],
+  compareProfiles: [],
   tokensHistory: [],
   systemHistory: [],
 };
@@ -214,11 +217,19 @@ function renderStatus(status) {
   drawTokensChart();
   drawSystemChart();
 
-  // Animate logo based on KV fill
+  // Animate logo based on KV fill and live throughput
   const logo = document.querySelector(".dwarfstar-logo");
-  if (logo && kvPct !== undefined && kvPct !== null) {
+  if (logo) {
     logo.dataset.state = status.state || "unknown";
-    logo.style.setProperty("--kv-distortion", String(kvPct));
+    if (kvPct !== undefined && kvPct !== null) {
+      logo.style.setProperty("--kv-distortion", String(kvPct));
+    }
+    const tokenRate = Number(tokens);
+    if (!Number.isNaN(tokenRate) && tokenRate > 0) {
+      const pulseSeconds = Math.max(0.45, Math.min(2.4, 2.35 - Math.log10(tokenRate + 1) * 0.55));
+      logo.style.setProperty("--tok-pulse-duration", `${pulseSeconds.toFixed(2)}s`);
+      logo.style.setProperty("--tok-star-drift", String(Math.min(36, tokenRate / 2)));
+    }
   }
 }
 
@@ -320,7 +331,7 @@ function drawSystemChart() {
 // ── JSON Syntax Highlight ──────────────────────────────────
 
 function syntaxHighlight(json) {
-  const escaped = json.replace(/[&<>]/g, (char) => ({ "&": "&", "<": "<", ">": ">" }[char]));
+  const escaped = json.replace(/[&<>]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[char]));
   return escaped.replace(
     /("(?:\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
     (match) => {
@@ -346,6 +357,7 @@ function renderConfig(config) {
   const port = config.primary_port || config.port || "8001";
   const pill = $("endpoint-pill");
   if (pill) pill.textContent = `${host}:${port}`;
+  buildCompareProfiles();
 }
 
 function renderSchema(schema) {
@@ -403,6 +415,7 @@ function renderSchema(schema) {
     });
     list.append(item);
   }
+  buildCompareProfiles();
 }
 
 // ── Config Save ─────────────────────────────────────────────
@@ -481,17 +494,95 @@ async function restartDS4() {
 
 // ── Benchmarks ──────────────────────────────────────────────
 
+function buildCompareProfiles() {
+  const profiles = [];
+  profiles.push({ id: "current", label: "Current config", overrides: {} });
+
+  const schemaDefaults = {};
+  for (const [key, meta] of Object.entries(state.schema || {})) {
+    if (meta.default !== undefined && meta.default !== null) schemaDefaults[key] = meta.default;
+  }
+  if (Object.keys(schemaDefaults).length > 0) {
+    profiles.push({ id: "defaults", label: "Dashboard defaults", overrides: schemaDefaults });
+  }
+
+  const currentModel = state.config?.model?.path || state.config?.model || "";
+  if (typeof currentModel === "string" && currentModel) {
+    profiles.push({
+      id: `current-model:${currentModel}`,
+      label: `Current model: ${currentModel.split("/").pop()}`,
+      overrides: { model: currentModel },
+    });
+  }
+
+  for (const model of state.models || []) {
+    if (!model.path) continue;
+    profiles.push({
+      id: `model:${model.path}`,
+      label: `Model: ${model.filename || model.path.split("/").pop()}`,
+      overrides: { model: model.path },
+    });
+  }
+
+  const seen = new Set();
+  state.compareProfiles = profiles.filter((profile) => {
+    const key = `${profile.id}:${JSON.stringify(profile.overrides)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  renderCompareProfileOptions();
+}
+
+function renderCompareProfileOptions() {
+  const aSelect = $("compare-config-a");
+  const bSelect = $("compare-config-b");
+  if (!aSelect || !bSelect) return;
+
+  const previousA = aSelect.value;
+  const previousB = bSelect.value;
+  for (const select of [aSelect, bSelect]) {
+    select.replaceChildren();
+    for (const profile of state.compareProfiles) {
+      const opt = document.createElement("option");
+      opt.value = profile.id;
+      opt.textContent = profile.label;
+      select.append(opt);
+    }
+  }
+  if (state.compareProfiles.some((profile) => profile.id === previousA)) aSelect.value = previousA;
+  if (state.compareProfiles.some((profile) => profile.id === previousB)) bSelect.value = previousB;
+  if (!bSelect.value && state.compareProfiles.length > 1) bSelect.value = state.compareProfiles[1].id;
+  if (aSelect.value === bSelect.value && state.compareProfiles.length > 1) bSelect.value = state.compareProfiles[1].id;
+}
+
+function selectedCompareProfile(id) {
+  return state.compareProfiles.find((profile) => profile.id === id) || null;
+}
+
 async function refreshBenchmarks() {
   try {
     const data = await fetchJson("/api/benchmarks");
-    const select = $("benchmark-suite");
-    if (!select) return;
-    select.replaceChildren();
+    state.benchmarkSuites = data.suites || [];
+    const runSelect = $("benchmark-suite");
+    const compareSelect = $("compare-suite");
+    for (const select of [runSelect, compareSelect]) {
+      if (!select) continue;
+      select.replaceChildren();
+      for (const suite of state.benchmarkSuites) {
+        const opt = document.createElement("option");
+        opt.value = suite.id;
+        opt.textContent = `${suite.name} (${suite.task_count} tasks)`;
+        select.append(opt);
+      }
+    }
+    if (!runSelect && !compareSelect) return;
     for (const suite of (data.suites || [])) {
-      const opt = document.createElement("option");
-      opt.value = suite.id;
-      opt.textContent = `${suite.name} (${suite.benchmark_count} benchmarks)`;
-      select.append(opt);
+      if (suite.id === "quick_smoke" || suite.id === "smoke") {
+        if (runSelect) runSelect.value = suite.id;
+        if (compareSelect) compareSelect.value = suite.id;
+        break;
+      }
     }
     const last = data.last_results;
     if (last) renderBenchmarkResults(last);
@@ -583,18 +674,33 @@ async function runBenchmark() {
 // ── Benchmark Compare ────────────────────────────────────────
 
 async function compareBenchmarks() {
-  const baseline = $("compare-baseline")?.value?.trim();
-  const target = $("compare-target")?.value?.trim();
-  if (!baseline || !target) {
-    setText("status-message", "Both baseline and target labels are required.");
+  const suite = $("compare-suite")?.value || $("benchmark-suite")?.value || "quick_smoke";
+  const configA = selectedCompareProfile($("compare-config-a")?.value);
+  const configB = selectedCompareProfile($("compare-config-b")?.value);
+  if (!configA || !configB) {
+    setText("status-message", "Select both benchmark configs before comparing.");
     return;
   }
+  if (configA.id === configB.id) {
+    setText("status-message", "Choose two different configs for compare mode.");
+    return;
+  }
+
+  setText("benchmark-summary", "comparing");
+  setText("status-message", `Running ${suite} against ${configA.label} and ${configB.label}...`);
   try {
-    const url = `/api/benchmarks/compare?baseline=${encodeURIComponent(baseline)}&target=${encodeURIComponent(target)}`;
-    const data = await fetchJson(url);
+    const result = await fetch("/api/benchmarks/compare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ suite, config_a: configA, config_b: configB, iterations: 1 }),
+    });
+    if (!result.ok) throw new Error(`HTTP ${result.status}`);
+    const data = await result.json();
     renderCompareView(data);
-    setText("status-message", `Compared ${baseline} vs ${target}`);
+    setText("benchmark-summary", "compared");
+    setText("status-message", `Compared ${configA.label} vs ${configB.label}`);
   } catch (error) {
+    setText("benchmark-summary", "compare error");
     setText("status-message", `Compare error: ${error.message}`);
   }
 }
@@ -603,100 +709,78 @@ function renderCompareView(data) {
   const container = $("compare-results");
   if (!container) return;
 
-  const b = data.baseline;
-  const t = data.target;
+  const configA = data.config_a || data.baseline || { label: "Config A" };
+  const configB = data.config_b || data.target || { label: "Config B" };
+  const resultA = data.run_a?.result || data.baseline?.result || {};
+  const resultB = data.run_b?.result || data.target?.result || {};
   const diffs = data.diffs || {};
   const taskDiffs = data.task_diffs || [];
 
   let html = `<div class="compare-header">
-    <div class="compare-label baseline-label">${escHtml(b.label)}</div>
-    <div class="compare-label target-label">${escHtml(t.label)}</div>
+    <div class="compare-label baseline-label">${escHtml(configA.label)}</div>
+    <div class="compare-label target-label">${escHtml(configB.label)}</div>
   </div>`;
 
-  // Aggregate comparison table
   const metrics = [
-    { key: "tok_s_avg", label: "Tokens/s", unit: "tok/s", fmt: (v) => formatNumber(v, 2) },
-    { key: "pass_rate", label: "Pass Rate", unit: "%", fmt: (v) => formatPercent(v) },
-    { key: "latency_p50_seconds", label: "p50 Latency", unit: "s", fmt: (v) => v ? (v * 1000).toFixed(0) + "ms" : "--" },
-    { key: "latency_p95_seconds", label: "p95 Latency", unit: "s", fmt: (v) => v ? (v * 1000).toFixed(0) + "ms" : "--" },
-    { key: "duration_seconds", label: "Duration", unit: "s", fmt: (v) => v ? formatNumber(v, 1) + "s" : "--" },
-    { key: "output_tokens", label: "Output Tokens", unit: "", fmt: (v) => v ? v.toLocaleString() : "--" },
+    { key: "tok_s_avg", label: "Tok/s", unit: " tok/s", fmt: (v) => formatNumber(v, 2) },
+    { key: "latency_p50_seconds", label: "TTFT (ms)", unit: " ms", fmt: (v) => v !== null && v !== undefined ? (v * 1000).toFixed(0) : "--", scale: 1000 },
+    { key: "latency_p95_seconds", label: "p95 (ms)", unit: " ms", fmt: (v) => v !== null && v !== undefined ? (v * 1000).toFixed(0) : "--", scale: 1000 },
+    { key: "pass_rate", label: "Pass rate", unit: "%", fmt: (v) => formatPercent(v) },
+    { key: "duration_seconds", label: "Duration", unit: "s", fmt: (v) => v !== null && v !== undefined ? `${formatNumber(v, 1)}s` : "--" },
+    { key: "output_tokens", label: "Output tokens", unit: "", fmt: (v) => v !== null && v !== undefined ? Number(v).toLocaleString() : "--" },
   ];
 
   html += `<table class="compare-table">
-    <thead><tr><th>Metric</th><th>${escHtml(b.label)}</th><th>${escHtml(t.label)}</th><th>Δ</th></tr></thead>
+    <thead><tr><th>Metric</th><th>${escHtml(configA.label)}</th><th>${escHtml(configB.label)}</th><th>Δ</th></tr></thead>
     <tbody>`;
   for (const m of metrics) {
     const d = diffs[m.key];
-    if (!d) continue;
-    const bv = d.baseline !== undefined && d.baseline !== null ? m.fmt(d.baseline) : "--";
-    const tv = d.target !== undefined && d.target !== null ? m.fmt(d.target) : "--";
-    let deltaHtml = "--";
-    if (d.delta !== undefined && d.delta !== null) {
-      const dirClass = d.direction === "up" ? "delta-up" : d.direction === "down" ? "delta-down" : "delta-flat";
-      const sign = d.delta > 0 ? "+" : "";
-      // For latency metrics, lower is better — invert direction display
-      const invert = m.key.includes("latency") || m.key === "duration_seconds";
-      const displayDir = invert ? (d.direction === "up" ? "↓" : d.direction === "down" ? "↑" : "—") : (d.direction === "up" ? "↑" : d.direction === "down" ? "↓" : "—");
-      deltaHtml = `<span class="${dirClass}">${displayDir} ${formatNumber(d.delta, 2)} ${m.unit}</span>`;
-    }
-    html += `<tr><td>${m.label}</td><td class="val-baseline">${bv}</td><td class="val-target">${tv}</td><td class="val-delta">${deltaHtml}</td></tr>`;
+    const valueA = d?.a ?? d?.baseline ?? resultA[m.key];
+    const valueB = d?.b ?? d?.target ?? resultB[m.key];
+    const deltaHtml = formatDelta(d, m);
+    html += `<tr><td>${escHtml(m.label)}</td><td class="val-baseline">${m.fmt(valueA)}</td><td class="val-target">${m.fmt(valueB)}</td><td class="val-delta">${deltaHtml}</td></tr>`;
   }
   html += `</tbody></table>`;
 
-  // Per-task comparison table
   if (taskDiffs.length > 0) {
     html += `<h4 class="compare-subhead">Per-task breakdown</h4>`;
     html += `<table class="compare-table compare-task-table">
       <thead><tr>
         <th>Task</th>
-        <th>${escHtml(b.label)} Score</th>
-        <th>${escHtml(t.label)} Score</th>
+        <th>${escHtml(configA.label)} Score</th>
+        <th>${escHtml(configB.label)} Score</th>
         <th>Δ Score</th>
-        <th>${escHtml(b.label)} tok/s</th>
-        <th>${escHtml(t.label)} tok/s</th>
+        <th>${escHtml(configA.label)} tok/s</th>
+        <th>${escHtml(configB.label)} tok/s</th>
         <th>Δ tok/s</th>
       </tr></thead>
       <tbody>`;
     for (const td of taskDiffs) {
       const title = escHtml(td.title || td.task_id);
-      const passB = td.passed?.baseline;
-      const passT = td.passed?.target;
-      const scoreB = td.score?.baseline !== undefined && td.score?.baseline !== null ? (td.score.baseline * 100).toFixed(0) + "%" : "--";
-      const scoreT = td.score?.target !== undefined && td.score?.target !== null ? (td.score.target * 100).toFixed(0) + "%" : "--";
-      const tokB = td.tok_s?.baseline !== undefined && td.tok_s?.baseline !== null ? formatNumber(td.tok_s.baseline, 1) : "--";
-      const tokT = td.tok_s?.target !== undefined && td.tok_s?.target !== null ? formatNumber(td.tok_s.target, 1) : "--";
+      const passA = td.passed?.a ?? td.passed?.baseline;
+      const passB = td.passed?.b ?? td.passed?.target;
+      const scoreA = td.score?.a !== undefined && td.score?.a !== null ? (td.score.a * 100).toFixed(0) + "%" : "--";
+      const scoreB = td.score?.b !== undefined && td.score?.b !== null ? (td.score.b * 100).toFixed(0) + "%" : "--";
+      const tokA = td.tok_s?.a !== undefined && td.tok_s?.a !== null ? formatNumber(td.tok_s.a, 1) : "--";
+      const tokB = td.tok_s?.b !== undefined && td.tok_s?.b !== null ? formatNumber(td.tok_s.b, 1) : "--";
 
-      // Score delta
-      let scoreDeltaHtml = "--";
-      if (td.score?.delta !== undefined && td.score?.delta !== null) {
-        const dir = td.score.delta > 0 ? "delta-up" : td.score.delta < 0 ? "delta-down" : "delta-flat";
-        const sign = td.score.delta > 0 ? "+" : "";
-        scoreDeltaHtml = `<span class="${dir}">${sign}${(td.score.delta * 100).toFixed(1)}%</span>`;
-      }
-      let tokDeltaHtml = "--";
-      if (td.tok_s?.delta !== undefined && td.tok_s?.delta !== null) {
-        const dir = td.tok_s.delta > 0 ? "delta-up" : td.tok_s.delta < 0 ? "delta-down" : "delta-flat";
-        const sign = td.tok_s.delta > 0 ? "+" : "";
-        tokDeltaHtml = `<span class="${dir}">${sign}${formatNumber(td.tok_s.delta, 1)}</span>`;
-      }
-
+      const scoreDeltaHtml = formatDelta(td.score, { scale: 100, unit: "%", digits: 1 });
+      const tokDeltaHtml = formatDelta(td.tok_s, { unit: "", digits: 1 });
+      const statusA = passA !== undefined ? (passA ? "✅" : "❌") : "—";
       const statusB = passB !== undefined ? (passB ? "✅" : "❌") : "—";
-      const statusT = passT !== undefined ? (passT ? "✅" : "❌") : "—";
       html += `<tr>
-        <td class="task-title">${statusB} ${statusT} ${title}</td>
-        <td class="val-baseline">${scoreB}</td>
-        <td class="val-target">${scoreT}</td>
+        <td class="task-title">${statusA} ${statusB} ${title}</td>
+        <td class="val-baseline">${scoreA}</td>
+        <td class="val-target">${scoreB}</td>
         <td class="val-delta">${scoreDeltaHtml}</td>
-        <td class="val-baseline">${tokB}</td>
-        <td class="val-target">${tokT}</td>
+        <td class="val-baseline">${tokA}</td>
+        <td class="val-target">${tokB}</td>
         <td class="val-delta">${tokDeltaHtml}</td>
       </tr>`;
     }
     html += `</tbody></table>`;
   }
 
-  // Raw JSON for deep inspection
   html += `<details class="compare-raw">
     <summary>Raw comparison data</summary>
     <pre class="json-viewer">${syntaxHighlight(JSON.stringify(data, null, 2))}</pre>
@@ -705,9 +789,26 @@ function renderCompareView(data) {
   container.innerHTML = html;
 }
 
+function formatDelta(diff, metric = {}) {
+  if (!diff || diff.delta === undefined || diff.delta === null) return "--";
+  const scale = metric.scale || 1;
+  const digits = metric.digits ?? (Math.abs(diff.delta * scale) < 10 ? 2 : 1);
+  const delta = diff.delta * scale;
+  const sign = delta > 0 ? "+" : "";
+  const improved = diff.improved;
+  const cls = improved === true ? "delta-good" : improved === false ? "delta-bad" : "delta-flat";
+  const mark = improved === true ? "✅" : improved === false ? "❌" : "—";
+  return `<span class="${cls}">${sign}${formatNumber(delta, digits)}${metric.unit || ""} ${mark}</span>`;
+}
+
 function escHtml(s) {
-  if (!s) return "";
-  return String(s).replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+  if (s === null || s === undefined) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // ── Update ──────────────────────────────────────────────────
@@ -764,8 +865,9 @@ async function refreshModelList() {
     const data = await fetchJson("/api/models");
     const select = $("model-select");
     if (!select) return;
+    state.models = data.models || [];
     select.replaceChildren();
-    for (const m of (data.models || [])) {
+    for (const m of state.models) {
       const opt = document.createElement("option");
       opt.value = m.path;
       opt.textContent = `${m.filename} (${m.size_gb} GB)`;
@@ -784,6 +886,7 @@ async function refreshModelList() {
         }
       }
     }
+    buildCompareProfiles();
   } catch (error) {
     console.warn("Model list refresh error:", error.message);
   }

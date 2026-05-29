@@ -3,6 +3,7 @@ from __future__ import annotations
 import statistics
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from bridge.engine_client import DS4EngineClient
@@ -30,11 +31,15 @@ class BenchmarkRunner:
         *,
         iterations: int = 1,
         compare_label: Optional[str] = None,
+        config_overrides: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         suite = get_suite(suite_id)
         run_id = uuid.uuid4().hex[:12]
         started_at = time.time()
         iterations = max(1, min(int(iterations), 10))
+        config_overrides = dict(config_overrides or {})
+        model_override = config_overrides.get("model")
+        model_name = Path(str(model_override)).name if model_override else suite.get("model_name", "ds4")
 
         task_results: List[Dict[str, Any]] = []
         for iteration in range(iterations):
@@ -66,7 +71,7 @@ class BenchmarkRunner:
                 # Feed generation metrics into per-model running averages
                 if self.model_averages and generation.get("ok"):
                     self.model_averages.record(
-                        suite.get("model_name", "ds4"),
+                        model_name,
                         tok_s=generation.get("tok_s"),
                         latency_seconds=generation.get("latency_seconds"),
                         output_tokens=generation.get("output_tokens"),
@@ -83,6 +88,7 @@ class BenchmarkRunner:
             "suite_id": suite_id,
             "suite_name": suite["name"],
             "compare_label": compare_label,
+            "config_overrides": config_overrides,
             "started_at": started_at,
             "completed_at": completed_at,
             "duration_seconds": completed_at - started_at,

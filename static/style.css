@@ -10,6 +10,7 @@
   --dim: #808080;
   --text: #e0e0e0;
   --border: rgba(0, 255, 65, 0.22);
+  --border-subtle: rgba(0, 255, 65, 0.12);
   --cyan-border: rgba(0, 212, 255, 0.28);
   --shadow: rgba(0, 255, 65, 0.14);
   --font: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -112,7 +113,7 @@ textarea {
 }
 
 .dwarfstar-logo[data-state="running"] .starfield circle {
-  transform: translateX(calc(var(--kv-distortion, 0) * 0.03px));
+  transform: translateX(calc(var(--kv-distortion, 0) * 0.03px)) rotate(calc(var(--tok-star-drift, 0) * 0.03deg));
   animation-duration: 2s;
 }
 
@@ -129,6 +130,10 @@ textarea {
   opacity: 0.50;
   transform-origin: 80px 80px;
   animation: ring-ripple 5s ease-in-out infinite;
+}
+
+.dwarfstar-logo[data-state="running"] .lensing-rings {
+  filter: url("#lensing-distort");
 }
 
 .lensing-rings circle:nth-child(2) {
@@ -172,6 +177,53 @@ textarea {
   animation: disk-drift 7s linear infinite reverse;
 }
 
+.accretion-particles {
+  filter: drop-shadow(0 0 5px rgba(0, 212, 255, 0.55));
+  opacity: 0.92;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.particle-trail {
+  fill: none;
+  stroke: rgba(223, 250, 255, 0.76);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 6 24;
+  opacity: 0.35;
+  animation: particle-trail-flow 4s ease-in-out infinite;
+}
+
+.particle-trail.trail-b {
+  stroke: rgba(0, 255, 65, 0.62);
+  stroke-dasharray: 4 20;
+  animation-delay: 600ms;
+}
+
+.particle-trail.trail-c {
+  stroke: rgba(0, 212, 255, 0.70);
+  stroke-dasharray: 3 18;
+  animation-delay: 1300ms;
+}
+
+.particle {
+  fill: #ffffff;
+  opacity: 0.82;
+  transform-box: fill-box;
+  transform-origin: 80px 80px;
+  animation: particle-orbit 4.8s ease-in-out infinite;
+}
+
+.particle-b {
+  fill: var(--green);
+  animation-delay: 800ms;
+}
+
+.particle-c {
+  fill: var(--cyan);
+  animation-delay: 1500ms;
+}
+
 /* ── Corona (diffuse envelope) ── */
 
 .corona {
@@ -187,7 +239,7 @@ textarea {
   filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 24px rgba(0, 212, 255, 0.75)) drop-shadow(0 0 48px rgba(0, 255, 65, 0.40));
   transform-box: fill-box;
   transform-origin: center;
-  animation: core-pulse 3s ease-in-out infinite;
+  animation: core-pulse 3s cubic-bezier(0.42, 0, 0.58, 1) infinite;
 }
 
 /* ── Telemetry Data-Pulse Ring ── */
@@ -204,7 +256,7 @@ textarea {
 
 .dwarfstar-logo[data-state="running"] .data-pulse-ring {
   opacity: 0.30;
-  animation: data-pulse 2s ease-in-out infinite;
+  animation: data-pulse var(--tok-pulse-duration, 2s) ease-in-out infinite;
 }
 
 .dwarfstar-logo[data-state="running"] .data-pulse-ring {
@@ -705,12 +757,16 @@ h2 {
 @keyframes core-pulse {
   0%,
   100% {
-    opacity: 0.90;
-    transform: scale(0.92);
+    opacity: 0.88;
+    transform: scale(0.94);
   }
-  50% {
+  45% {
     opacity: 1;
-    transform: scale(1.10);
+    transform: scale(1.09);
+  }
+  72% {
+    opacity: 0.72;
+    transform: scale(0.99);
   }
 }
 
@@ -732,6 +788,32 @@ h2 {
   }
   to {
     transform: rotate(360deg) scaleX(1);
+  }
+}
+
+@keyframes particle-trail-flow {
+  0% {
+    stroke-dashoffset: 36;
+    opacity: 0.08;
+  }
+  45% {
+    opacity: 0.62;
+  }
+  100% {
+    stroke-dashoffset: -36;
+    opacity: 0.12;
+  }
+}
+
+@keyframes particle-orbit {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: rotate(-3deg) translateX(-1px);
+  }
+  50% {
+    opacity: 0.95;
+    transform: rotate(7deg) translateX(2px);
   }
 }
 
@@ -820,6 +902,128 @@ h2 {
   }
 }
 
+/* ── Benchmark Controls ───────────────────────────────────── */
+
+.benchmark-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.control-row,
+.compare-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 0.65fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.control-row select,
+.control-row input,
+.control-row button,
+.compare-controls select,
+.compare-controls button {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #0a0a0a;
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.control-row select,
+.control-row input,
+.compare-controls select {
+  padding: 0 9px;
+}
+
+.control-row button,
+.compare-controls button {
+  padding: 0 14px;
+  color: var(--green);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.control-row button:hover,
+.control-row button:focus-visible,
+.compare-controls button:hover,
+.compare-controls button:focus-visible {
+  border-color: var(--green);
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.24);
+  outline: none;
+}
+
+.benchmark-compare-section {
+  padding: 12px;
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 212, 255, 0.035);
+}
+
+.compare-title-row {
+  margin-bottom: 10px;
+}
+
+.compare-title-row h3 {
+  margin: 0;
+  color: var(--cyan);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+
+.compare-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+}
+
+.compare-controls label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.compare-controls label span {
+  color: var(--dim);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.benchmark-results {
+  display: grid;
+  gap: 6px;
+}
+
+.benchmark-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: #0d0d0d;
+  font-size: 0.78rem;
+}
+
+.benchmark-row strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--green);
+  overflow-wrap: anywhere;
+}
+
+.benchmark-stat {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 760px) {
+  .control-row,
+  .compare-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Benchmark task breakdown */
 .benchmark-task {
   display: flex;
@@ -901,8 +1105,13 @@ h2 {
 }
 
 .compare-table td {
-  padding: 3px 8px;
+  padding: 5px 8px;
   border-bottom: 1px solid var(--border-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.compare-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .compare-table tr:last-child td {
@@ -934,11 +1143,13 @@ h2 {
   color: var(--dim);
 }
 
-.delta-up {
+.delta-up,
+.delta-good {
   color: #00ff41;
 }
 
-.delta-down {
+.delta-down,
+.delta-bad {
   color: #ff003b;
 }
 
