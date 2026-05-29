@@ -61,9 +61,11 @@ function setText(id, value) {
 function setStateChip(status) {
   const chip = $("status-chip");
   const stateLabel = $("state-label");
-  const currentState = status.state || (status.running ? "running" : "stopped");
-  if (chip) chip.dataset.state = currentState;
-  if (stateLabel) stateLabel.textContent = currentState.toUpperCase();
+  const rawState = status.state || (status.running ? "running" : "stopped");
+  const labelMap = { running: "RUNNING", stopped: "OFFLINE", error: "ERROR", unknown: "UNKNOWN" };
+  const displayLabel = labelMap[rawState] || rawState.toUpperCase();
+  if (chip) chip.dataset.state = rawState;
+  if (stateLabel) stateLabel.textContent = displayLabel;
 }
 
 // ── Memory Gauge Color ─────────────────────────────────────
@@ -291,6 +293,12 @@ function renderConfig(config) {
   const json = JSON.stringify(config, null, 2);
   const viewer = $("config-json");
   if (viewer) viewer.innerHTML = syntaxHighlight(json);
+
+  // Update endpoint pill from live config
+  const host = config.primary_host || "127.0.0.1";
+  const port = config.primary_port || config.port || "8001";
+  const pill = $("endpoint-pill");
+  if (pill) pill.textContent = `${host}:${port}`;
 }
 
 function renderSchema(schema) {
@@ -312,23 +320,24 @@ function renderSchema(schema) {
     type.textContent = meta.type || "unknown";
     title.append(name, type);
 
-    const desc = document.createElement("p");
-    desc.textContent = meta.desc || "No description available.";
-
-    // Show current value and default value side by side
+    // Show current and default inline in description
     const currentVal = meta.current !== undefined ? meta.current : meta.default;
     const defaultValue = meta.default;
+    const fmtVal = (v) => v === null || v === undefined ? "—" : String(v);
+    const desc = document.createElement("p");
+    desc.textContent = `${meta.desc || "No description available."} (current: ${fmtVal(currentVal)}, default: ${fmtVal(defaultValue)})`;
 
+    // Also show as separate styled code elements for quick scanning
     const valuesDiv = document.createElement("div");
     valuesDiv.className = "schema-values";
 
     const currentDisplay = document.createElement("code");
     currentDisplay.className = "schema-current";
-    currentDisplay.textContent = `current: ${String(currentVal ?? "")}`;
+    currentDisplay.textContent = `current: ${fmtVal(currentVal)}`;
 
     const defaultDisplay = document.createElement("code");
     defaultDisplay.className = "schema-default";
-    defaultDisplay.textContent = `default: ${String(defaultValue ?? "")}`;
+    defaultDisplay.textContent = `default: ${fmtVal(defaultValue)}`;
 
     valuesDiv.append(currentDisplay, defaultDisplay);
 
