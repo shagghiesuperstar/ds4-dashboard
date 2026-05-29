@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>DS4 Dwarfstar Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar" aria-label="Dashboard header">
+        <a class="brand" href="/" aria-label="DS4 dashboard home">
+          <svg class="dwarfstar-logo" viewBox="0 0 160 160" role="img" aria-labelledby="logo-title logo-desc">
+            <title id="logo-title">White dwarf telemetry logo</title>
+            <desc id="logo-desc">A pulsing white dwarf core with lensing rings and an accretion disk.</desc>
+            <defs>
+              <radialGradient id="core-glow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#ffffff" />
+                <stop offset="35%" stop-color="#c9f7ff" />
+                <stop offset="68%" stop-color="#00d4ff" stop-opacity="0.45" />
+                <stop offset="100%" stop-color="#00ff41" stop-opacity="0" />
+              </radialGradient>
+              <linearGradient id="disk-glow" x1="0%" x2="100%" y1="50%" y2="50%">
+                <stop offset="0%" stop-color="#00ff41" stop-opacity="0.1" />
+                <stop offset="30%" stop-color="#00d4ff" stop-opacity="0.8" />
+                <stop offset="50%" stop-color="#ffffff" />
+                <stop offset="70%" stop-color="#00d4ff" stop-opacity="0.8" />
+                <stop offset="100%" stop-color="#00ff41" stop-opacity="0.1" />
+              </linearGradient>
+              <filter id="logo-blur">
+                <feGaussianBlur stdDeviation="3" />
+              </filter>
+            </defs>
+            <g class="starfield" data-kv-field>
+              <circle cx="27" cy="33" r="1.1" />
+              <circle cx="132" cy="29" r="1.4" />
+              <circle cx="142" cy="103" r="0.9" />
+              <circle cx="29" cy="124" r="1.2" />
+              <circle cx="53" cy="19" r="0.7" />
+              <circle cx="115" cy="135" r="1" />
+            </g>
+            <g class="lensing-rings" data-lensing-rings>
+              <circle cx="80" cy="80" r="58" />
+              <circle cx="80" cy="80" r="43" />
+              <circle cx="80" cy="80" r="28" />
+            </g>
+            <ellipse class="accretion-disk disk-shadow" cx="80" cy="80" rx="64" ry="13" />
+            <ellipse class="accretion-disk" cx="80" cy="80" rx="58" ry="9" />
+            <circle class="corona" cx="80" cy="80" r="27" />
+            <circle class="core" cx="80" cy="80" r="13" />
+          </svg>
+          <span>
+            <strong>DS4</strong>
+            <span>Inference Engine</span>
+          </span>
+        </a>
+        <div class="status-chip" id="status-chip" data-state="unknown">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="state-label">UNKNOWN</span>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="hero-panel" aria-labelledby="status-title">
+          <div class="section-heading">
+            <p>Live Engine Core</p>
+            <h1 id="status-title">Dwarfstar Telemetry</h1>
+          </div>
+          <div class="metric-strip" aria-label="Core status metrics">
+            <article>
+              <span>Tokens/sec</span>
+              <strong id="tokens-sec">--</strong>
+            </article>
+            <article>
+              <span>Context</span>
+              <strong id="context-window">--</strong>
+            </article>
+            <article>
+              <span>KV Cache</span>
+              <strong id="kv-cache">--</strong>
+            </article>
+            <article>
+              <span>Shaders</span>
+              <strong id="shader-count">--</strong>
+            </article>
+          </div>
+          <div class="signal-line" id="status-message">Waiting for first telemetry pulse.</div>
+        </section>
+
+        <section class="panel memory-panel" aria-labelledby="memory-title">
+          <div class="panel-header">
+            <div>
+              <p>System Cushion</p>
+              <h2 id="memory-title">Memory</h2>
+            </div>
+            <span class="panel-accent" id="memory-pressure">--</span>
+          </div>
+          <div class="gauge" aria-label="Memory usage">
+            <div class="gauge-track">
+              <div class="gauge-fill" id="memory-fill"></div>
+            </div>
+            <div class="gauge-labels">
+              <span id="memory-used">Used --</span>
+              <span id="memory-free">Free --</span>
+            </div>
+          </div>
+          <dl class="metric-list">
+            <div>
+              <dt>CPU</dt>
+              <dd id="cpu-usage">--</dd>
+            </div>
+            <div>
+              <dt>Process</dt>
+              <dd id="process-id">--</dd>
+            </div>
+            <div>
+              <dt>Uptime</dt>
+              <dd id="uptime">--</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel config-panel" aria-labelledby="config-title">
+          <div class="panel-header">
+            <div>
+              <p>Configuration Plane</p>
+              <h2 id="config-title">Runtime Config</h2>
+            </div>
+            <button class="icon-button" id="refresh-config" type="button" aria-label="Refresh config">
+              <span aria-hidden="true">&#8635;</span>
+            </button>
+          </div>
+          <pre class="json-viewer" id="config-json" tabindex="0">{}</pre>
+        </section>
+
+        <section class="panel schema-panel" aria-labelledby="schema-title">
+          <div class="panel-header">
+            <div>
+              <p>Dynamic Schema</p>
+              <h2 id="schema-title">Discovered Options</h2>
+            </div>
+            <span class="panel-accent" id="schema-count">0 keys</span>
+          </div>
+          <div class="schema-list" id="schema-list"></div>
+          <div class="schema-editor-bar" id="schema-editor-bar" style="display:none">
+            <input type="text" id="config-edit-key" placeholder="Key (e.g. primary_port)" spellcheck="false" />
+            <input type="text" id="config-edit-value" placeholder="Value" spellcheck="false" />
+            <button id="config-save-btn" type="button">Save</button>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/static/dashboard.js" defer></script>
+  </body>
+</html>
