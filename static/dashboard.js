@@ -27,6 +27,11 @@ function formatBytes(bytes) {
   return `${signed.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
+function formatMiB(mib) {
+  if (mib === null || mib === undefined || Number.isNaN(Number(mib))) return "--";
+  return formatBytes(Number(mib) * 1024 * 1024);
+}
+
 function formatNumber(value, digits = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "--";
   return Number(value).toLocaleString(undefined, {
@@ -100,7 +105,7 @@ function renderStatus(status) {
   setText("tokens-sec", tokens === undefined || tokens === null ? "--" : `${formatNumber(tokens, 2)} tok/s`);
   setText("prefill-sec", telemetry.prefill_s === undefined || telemetry.prefill_s === null ? "--" : `${formatNumber(telemetry.prefill_s, 2)} tok/s`);
   setText("context-window", config.context_window ? config.context_window.toLocaleString() : "--");
-  setText("kv-cache", kv.used_bytes ? formatBytes(kv.used_bytes) : "--");
+  setText("kv-cache", kv.used_bytes ? formatBytes(kv.used_bytes) : kv.budget_mib ? `budget ${formatMiB(kv.budget_mib)}` : "--");
   setText("shader-count", String(config.metal?.shader_count ?? config_manager_metal_shaders ?? "--"));
 
   // Signal line
@@ -129,8 +134,19 @@ function renderStatus(status) {
   const kvPct = kv.disk_fill_percent ?? kv.fill_percent;
   if (kvFill && kvPct !== undefined && kvPct !== null) {
     kvFill.style.width = `${Math.min(100, Math.max(0, Number(kvPct)))}%`;
+  } else if (kvFill) {
+    kvFill.style.width = "0%";
   }
-  setText("kv-label", kv.disk_used_bytes ? formatBytes(kv.disk_used_bytes) : formatMiB(kv.budget_mib));
+  // Show used / budget for KV cache
+  const kvUsed = kv.disk_used_bytes || kv.used_bytes;
+  const kvBudget = kv.budget_bytes || (kv.budget_mib ? Number(kv.budget_mib) * 1024 * 1024 : null);
+  if (kvUsed) {
+    setText("kv-label", `${formatBytes(kvUsed)} / ${formatBytes(kvBudget)}`);
+  } else if (kvBudget) {
+    setText("kv-label", `budget: ${formatBytes(kvBudget)}`);
+  } else {
+    setText("kv-label", "--");
+  }
   const kvTotal = kv.budget_bytes || kv.total_bytes;
   setText("kv-total", kvTotal ? "Total " + formatBytes(kvTotal) : "--");
   setText("kv-path", kv.path || "--");
@@ -139,14 +155,14 @@ function renderStatus(status) {
   // CPU / GPU / Temps
   const cpuText = cpu.usage_percent !== undefined && cpu.usage_percent !== null
     ? formatPercent(cpu.usage_percent)
-    : cpu.load_average ? `load ${formatNumber(cpu.load_average[0], 2)}` : "--";
+    : cpu.load_average ? `load ${formatNumber(cpu.load_average[0], 2)}` : "N/A";
   setText("cpu-usage", cpuText);
   const gpuText = gpu.usage_percent !== undefined && gpu.usage_percent !== null
     ? formatPercent(gpu.usage_percent)
-    : "--";
+    : gpu.source === "unavailable" ? "N/A" : "--";
   setText("gpu-usage", gpuText);
-  setText("cpu-temp", temp.cpu !== undefined && temp.cpu !== null ? `${formatNumber(temp.cpu, 1)}°C` : "--");
-  setText("gpu-temp", temp.gpu !== undefined && temp.gpu !== null ? `${formatNumber(temp.gpu, 1)}°C` : "--");
+  setText("cpu-temp", temp.cpu !== undefined && temp.cpu !== null ? `${formatNumber(temp.cpu, 1)}°C` : "N/A");
+  setText("gpu-temp", temp.gpu !== undefined && temp.gpu !== null ? `${formatNumber(temp.gpu, 1)}°C` : "N/A");
 
   // Charts
   if (tokens !== undefined && tokens !== null) {
@@ -323,7 +339,11 @@ function renderSchema(schema) {
     // Show current and default inline in description
     const currentVal = meta.current !== undefined ? meta.current : meta.default;
     const defaultValue = meta.default;
-    const fmtVal = (v) => v === null || v === undefined ? "—" : String(v);
+    const fmtVal = (v) => {
+      if (v === null || v === undefined) return "—";
+      const s = String(v);
+      return s === "" ? "—" : s;
+    };
     const desc = document.createElement("p");
     desc.textContent = `${meta.desc || "No description available."} (current: ${fmtVal(currentVal)}, default: ${fmtVal(defaultValue)})`;
 
