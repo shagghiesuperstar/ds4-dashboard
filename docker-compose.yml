@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  ds4-dashboard:
+    build: .
+    container_name: ds4-dashboard
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./bridge/config.yaml:/app/bridge/config.yaml:ro
+    environment:
+      DS4_HOME: /ds4
+      DS4_TELEM_URL: "http://host.docker.internal:8001/telem"
+      DS4_PRIMARY_PORT: "8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

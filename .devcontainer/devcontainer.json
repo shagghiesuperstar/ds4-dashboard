@@ -1,0 +1,21 @@
+{
+    "name": "DS4 Dashboard Dev",
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "context": ".."
+    },
+    "forwardPorts": [8765],
+    "mounts": [
+        "source=${localWorkspaceFolder}/bridge/config.yaml,target=/app/bridge/config.yaml,type=bind,readonly"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance"
+            ]
+        }
+    },
+    "postCreateCommand": "pip install -r requirements-dev.txt",
+    "remoteUser": "root"
+}
