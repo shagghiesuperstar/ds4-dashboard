@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from benchmarks.runner import BenchmarkRunner
 from bridge.config_manager import DS4ConfigManager
 from bridge.engine_client import DS4EngineClient, EngineClientConfig
+from bridge.model_averages import ModelRunningAverages
+from bridge.model_discovery import discover_models
 from bridge.system_metrics import MacSystemMetrics
 from mcp.resources import DashboardResourceRegistry
 from mcp.server import MCPJsonRpcServer
@@ -83,7 +85,19 @@ config_manager = DS4ConfigManager(
     },
 )
 system_metrics = MacSystemMetrics()
-benchmark_runner = BenchmarkRunner(engine_client)
+
+model_averages = ModelRunningAverages()
+
+# Directories to scan for available GGUF models
+MODEL_SEARCH_PATHS = [
+    DS4_HOME,
+    DS4_HOME / "gguf",
+    Path("~/Downloads").expanduser(),
+    Path("~/models").expanduser(),
+    Path("/Volumes/OWC_MODELS_TB5").expanduser(),
+]
+
+benchmark_runner = BenchmarkRunner(engine_client, model_averages=model_averages)
 updater = DS4Updater(repo=DS4_GITHUB_REPO, binary_path=DS4_BINARY)
 
 
@@ -126,14 +140,21 @@ def get_status_payload() -> Dict[str, Any]:
     disk_kv = system.get("kv_disk_cache") or {}
     status["config"] = config
     status["system"] = system
+    # telemetry_kv first, then config values override — prevents null telemetry
+    # from overwriting the real budget_bytes from config_manager
     status["kv_cache"] = {
+        **telemetry_kv,
         "path": kv_cache.get("path"),
         "budget_mib": kv_cache.get("budget_mib"),
         "budget_bytes": kv_cache.get("budget_bytes"),
         "disk_used_bytes": disk_kv.get("used_bytes"),
         "disk_fill_percent": disk_kv.get("fill_percent"),
-        **telemetry_kv,
     }
+
+    # Attach per-model running averages for the currently-active model
+    current_model = config.get("model", {}).get("path", "") if isinstance(config.get("model"), dict) else str(config.get("model", ""))
+    status["model_averages"] = model_averages.get_stats(current_model)
+    status["model_averages_all"] = model_averages.get_all_stats()
     return status
 
 
@@ -249,6 +270,42 @@ async def api_restart_ds4() -> Dict[str, Any]:
 @app.get("/api/config-overrides")
 async def api_config_overrides() -> Dict[str, Any]:
     return config_manager.get_overrides()
+
+
+# ── Model Discovery & Switching ──────────────────────────────────
+
+@app.get("/api/models")
+async def api_list_models() -> Dict[str, Any]:
+    """List available GGUF models from known search paths."""
+    config = config_manager.get_config()
+    current_model_path = config.get("model", {}).get("path", "") if isinstance(config.get("model"), dict) else str(config.get("model", ""))
+    models = discover_models(model_paths=MODEL_SEARCH_PATHS)
+    return {
+        "models": models,
+        "current_model": current_model_path or config.get("model", ""),
+        "averages": model_averages.get_all_stats(),
+    }
+
+class SwitchModelRequest(BaseModel):
+    model_path: str
+    restart: bool = True
+
+@app.post("/api/models/switch")
+async def api_switch_model(request: SwitchModelRequest) -> Dict[str, Any]:
+    """Switch to a different GGUF model and restart DS4."""
+    path = Path(request.model_path).expanduser().resolve()
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Model path does not exist: {path}")
+
+    if not path.suffix in (".gguf", ".ggufv2", ".ggufv3"):
+        raise HTTPException(status_code=400, detail="Not a GGUF file")
+
+    result = config_manager.apply_and_restart(
+        "model",
+        str(path),
+        restart_script=RESTART_SCRIPT,
+    )
+    return {"ok": True, "result": result, "config": config_manager.get_config()}
 
 
 @app.get("/api/benchmarks")

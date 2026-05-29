@@ -153,29 +153,60 @@ function renderStatus(status) {
   setText("process-rss", memory.ds4_rss_bytes ? formatBytes(memory.ds4_rss_bytes) : "--");
 
   // CPU / GPU / Temps
-  const cpuText = cpu.usage_percent !== undefined && cpu.usage_percent !== null
-    ? formatPercent(cpu.usage_percent)
+  const cpuPct = cpu.usage_percent;
+  const gpuPct = gpu.usage_percent;
+  const cpuTemp = temp.cpu;
+  const gpuTempVal = temp.gpu;
+
+  const cpuText = cpuPct !== undefined && cpuPct !== null
+    ? formatPercent(cpuPct)
     : cpu.load_average ? `load ${formatNumber(cpu.load_average[0], 2)}` : "N/A";
   setText("cpu-usage", cpuText);
-  const gpuText = gpu.usage_percent !== undefined && gpu.usage_percent !== null
-    ? formatPercent(gpu.usage_percent)
+  const gpuText = gpuPct !== undefined && gpuPct !== null
+    ? formatPercent(gpuPct)
     : gpu.source === "unavailable" ? "N/A" : "--";
   setText("gpu-usage", gpuText);
-  setText("cpu-temp", temp.cpu !== undefined && temp.cpu !== null ? `${formatNumber(temp.cpu, 1)}°C` : "N/A");
-  setText("gpu-temp", temp.gpu !== undefined && temp.gpu !== null ? `${formatNumber(temp.gpu, 1)}°C` : "N/A");
+  setText("cpu-temp", cpuTemp !== undefined && cpuTemp !== null ? `${formatNumber(cpuTemp, 1)}°C` : "N/A");
+  setText("gpu-temp", gpuTempVal !== undefined && gpuTempVal !== null ? `${formatNumber(gpuTempVal, 1)}°C` : "N/A");
+
+  // Per-model running averages
+  const modelAvg = status.model_averages || {};
+  if (modelAvg.count > 0) {
+    const tok = modelAvg.tok_s || {};
+    const prefill = modelAvg.prefill_tok_s || {};
+    const lat = modelAvg.latency_seconds || {};
+    setText("model-tok-s", tok.avg !== null ? `${formatNumber(tok.avg, 2)} tok/s` : "--");
+    setText("model-prefill", prefill.avg !== null ? `${formatNumber(prefill.avg, 2)} tok/s` : "--");
+    setText("model-latency", lat.avg !== null ? `${(lat.avg * 1000).toFixed(0)}ms` : "--");
+    setText("model-calls", String(modelAvg.total_calls ?? "--"));
+    setText("model-summary", `${modelAvg.total_calls} calls | ${modelAvg.window_size} window`);
+  } else {
+    setText("model-tok-s", "--");
+    setText("model-prefill", "--");
+    setText("model-latency", "--");
+    setText("model-calls", "--");
+    setText("model-summary", "no data yet");
+  }
+  const configModel = status.config?.model?.path || status.config?.model || "";
+  setText("current-model-name", typeof configModel === "string" ? configModel.split("/").pop() : "--");
 
   // Charts
   if (tokens !== undefined && tokens !== null) {
     state.tokensHistory.push({ t: Date.now(), v: Number(tokens) });
     if (state.tokensHistory.length > MAX_CHART_POINTS) state.tokensHistory = state.tokensHistory.slice(-MAX_CHART_POINTS);
   }
-  if (cpuText !== "--" && gpuText !== "--") {
+  // Push system history only when both CPU and GPU have valid numeric values
+  const cpuNum = cpuPct !== undefined && cpuPct !== null ? Number(cpuPct) : null;
+  const gpuNum = gpuPct !== undefined && gpuPct !== null ? Number(gpuPct) : null;
+  const cpuTempNum = cpuTemp !== undefined && cpuTemp !== null ? Number(cpuTemp) : null;
+  const gpuTempNum = gpuTempVal !== undefined && gpuTempVal !== null ? Number(gpuTempVal) : null;
+  if (cpuNum !== null && !Number.isNaN(cpuNum) && gpuNum !== null && !Number.isNaN(gpuNum)) {
     state.systemHistory.push({
       t: Date.now(),
-      cpu: Number(cpu.usage_percent),
-      gpu: Number(gpu.usage_percent),
-      temp_cpu: Number(temp.cpu),
-      temp_gpu: Number(temp.gpu),
+      cpu: cpuNum,
+      gpu: gpuNum,
+      temp_cpu: cpuTempNum,
+      temp_gpu: gpuTempNum,
     });
     if (state.systemHistory.length > MAX_CHART_POINTS) state.systemHistory = state.systemHistory.slice(-MAX_CHART_POINTS);
   }
@@ -726,6 +757,64 @@ async function refreshMCP() {
   }
 }
 
+// ── Model List & Switch ───────────────────────────────────
+
+async function refreshModelList() {
+  try {
+    const data = await fetchJson("/api/models");
+    const select = $("model-select");
+    if (!select) return;
+    select.replaceChildren();
+    for (const m of (data.models || [])) {
+      const opt = document.createElement("option");
+      opt.value = m.path;
+      opt.textContent = `${m.filename} (${m.size_gb} GB)`;
+      select.append(opt);
+    }
+    // Show current model in placeholder
+    const currentPath = data.current_model || "";
+    const currentName = currentPath.split("/").pop() || "--";
+    setText("model-summary", currentName);
+    // Show per-model averages for all known models
+    if (data.averages) {
+      for (const [modelName, stats] of Object.entries(data.averages)) {
+        if (stats.count > 0 && modelName === currentName) {
+          // Already rendered in renderStatus; update summary
+          setText("model-summary", `${currentName}: ${stats.total_calls} calls`);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("Model list refresh error:", error.message);
+  }
+}
+
+async function switchModel() {
+  const select = $("model-select");
+  if (!select || !select.value) return;
+  const path = select.value;
+  setText("model-summary", `Switching to ${path.split("/").pop()}...`);
+  try {
+    const result = await fetch("/api/models/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_path: path }),
+    });
+    if (!result.ok) throw new Error(`HTTP ${result.status}`);
+    const data = await result.json();
+    if (data.ok) {
+      setText("status-message", `Switched to ${path.split("/").pop()} — DS4 restarting.`);
+      setText("model-summary", `restarting: ${path.split("/").pop()}`);
+    } else {
+      setText("status-message", `Switch failed: ${data.result?.error || "unknown"}`);
+      setText("model-summary", "switch failed");
+    }
+  } catch (error) {
+    setText("status-message", `Model switch error: ${error.message}`);
+    setText("model-summary", "error");
+  }
+}
+
 // ── Fetch ───────────────────────────────────────────────────
 
 async function fetchJson(url) {
@@ -782,12 +871,16 @@ async function boot() {
   $("update-check")?.addEventListener("click", () => {
     checkUpdate().catch((error) => setText("status-message", error.message));
   });
+  $("switch-model-btn")?.addEventListener("click", () => {
+    switchModel().catch((error) => setText("status-message", error.message));
+  });
 
   // Initial loads
   await Promise.all([
     refreshConfig().catch((error) => setText("status-message", error.message)),
     refreshBenchmarks().catch((error) => console.warn("benchmarks:", error.message)),
     refreshMCP().catch((error) => console.warn("mcp:", error.message)),
+    refreshModelList().catch((error) => console.warn("models:", error.message)),
   ]);
 
   // Start telemetry polling

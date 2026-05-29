@@ -6,14 +6,16 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from bridge.engine_client import DS4EngineClient
+from bridge.model_averages import ModelRunningAverages
 
 from .coding import score_response
 from .suites import get_suite, list_suites
 
 
 class BenchmarkRunner:
-    def __init__(self, engine_client: DS4EngineClient) -> None:
+    def __init__(self, engine_client: DS4EngineClient, *, model_averages: Optional[ModelRunningAverages] = None) -> None:
         self.engine_client = engine_client
+        self.model_averages = model_averages
         self._last_results: List[Dict[str, Any]] = []
 
     def list_suites(self) -> List[Dict[str, Any]]:
@@ -61,6 +63,14 @@ class BenchmarkRunner:
                         "response_excerpt": generation.get("text", "")[:800],
                     }
                 )
+                # Feed generation metrics into per-model running averages
+                if self.model_averages and generation.get("ok"):
+                    self.model_averages.record(
+                        suite.get("model_name", "ds4"),
+                        tok_s=generation.get("tok_s"),
+                        latency_seconds=generation.get("latency_seconds"),
+                        output_tokens=generation.get("output_tokens"),
+                    )
 
         completed_at = time.time()
         latencies = [float(item["latency_seconds"]) for item in task_results if item["latency_seconds"]]

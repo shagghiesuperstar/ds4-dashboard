@@ -647,6 +647,61 @@ h2 {
   color: var(--dim);
 }
 
+/* ── Model Panel ─────────────────────────── */
+
+.model-panel .model-layout {
+  padding: 8px 0;
+}
+.model-panel .model-current {
+  margin-bottom: 10px;
+}
+.model-panel .model-current strong {
+  font-size: 13px;
+  color: var(--green);
+  word-break: break-all;
+}
+.model-panel .model-stats {
+  display: flex;
+  gap: 16px;
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+.model-panel .model-stats div {
+  display: flex;
+  gap: 4px;
+}
+.model-panel .model-stats dt {
+  color: var(--dim);
+}
+.model-panel .model-stats dd {
+  color: var(--cyan);
+  margin: 0;
+}
+.model-panel .model-selector {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.model-panel .model-selector select {
+  flex: 1;
+  min-width: 0;
+  background: #0a0a0a;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 6px;
+  font-size: 11px;
+}
+.model-panel .model-selector button {
+  background: var(--panel-2);
+  border: 1px solid var(--cyan-border);
+  color: var(--cyan);
+  padding: 4px 14px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.model-panel .model-selector button:hover { background: #222; }
+
 @keyframes core-pulse {
   0%,
   100% {

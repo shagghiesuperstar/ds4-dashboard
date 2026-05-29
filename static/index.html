@@ -271,6 +271,31 @@
           </div>
         </section>
 
+        <section class="panel model-panel" aria-labelledby="model-title">
+          <div class="panel-header">
+            <div>
+              <p>Model Selector</p>
+              <h2 id="model-title">Models</h2>
+            </div>
+            <span class="panel-accent" id="model-summary">--</span>
+          </div>
+          <div class="model-layout">
+            <div class="model-current">
+              <strong id="current-model-name">--</strong>
+              <dl class="model-stats">
+                <div><dt>tok/s</dt><dd id="model-tok-s">--</dd></div>
+                <div><dt>prefill</dt><dd id="model-prefill">--</dd></div>
+                <div><dt>latency</dt><dd id="model-latency">--</dd></div>
+                <div><dt>calls</dt><dd id="model-calls">--</dd></div>
+              </dl>
+            </div>
+            <div class="model-selector">
+              <select id="model-select" aria-label="Available GGUF models"></select>
+              <button id="switch-model-btn" type="button">Switch & Restart</button>
+            </div>
+          </div>
+        </section>
+
         <section class="panel benchmark-panel" aria-labelledby="benchmark-title">
           <div class="panel-header">
             <div>
