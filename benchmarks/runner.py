@@ -98,9 +98,66 @@ class BenchmarkRunner:
             return values[0]
         values = sorted(values)
         index = (len(values) - 1) * percentile / 100
-        lower = int(index)
-        upper = min(lower + 1, len(values) - 1)
-        if lower == upper:
-            return values[lower]
-        weight = index - lower
-        return values[lower] * (1 - weight) + values[upper] * weight
+        return values[min(int(index), len(values) - 1)]
+
+    def compare(self, baseline_label: str, target_label: str) -> Dict[str, Any]:
+        """Find two results by compare_label (or run_id fallback) and return a diff."""
+        baseline = None
+        target = None
+        for r in self._last_results:
+            label = r.get("compare_label") or r.get("run_id")
+            if label == baseline_label:
+                baseline = r
+            if label == target_label:
+                target = r
+        if not baseline:
+            raise KeyError(f"No baseline result matching '{baseline_label}'")
+        if not target:
+            raise KeyError(f"No target result matching '{target_label}'")
+
+        def _diff(b, t):
+            if b is None and t is None:
+                return None
+            if b is None:
+                return {"baseline": None, "target": t, "delta": None}
+            if t is None:
+                return {"baseline": b, "target": None, "delta": None}
+            delta = t - b if isinstance(b, (int, float)) and isinstance(t, (int, float)) else None
+            direction = "up" if delta and delta > 0 else "down" if delta and delta < 0 else "flat"
+            return {"baseline": b, "target": t, "delta": delta, "direction": direction}
+
+        # Aggregate diffs
+        diffs = {
+            "tok_s_avg": _diff(baseline.get("tok_s_avg"), target.get("tok_s_avg")),
+            "pass_rate": _diff(baseline.get("pass_rate"), target.get("pass_rate")),
+            "latency_p50_seconds": _diff(baseline.get("latency_p50_seconds"), target.get("latency_p50_seconds")),
+            "latency_p95_seconds": _diff(baseline.get("latency_p95_seconds"), target.get("latency_p95_seconds")),
+            "duration_seconds": _diff(baseline.get("duration_seconds"), target.get("duration_seconds")),
+            "output_tokens": _diff(baseline.get("output_tokens"), target.get("output_tokens")),
+            "task_count": _diff(baseline.get("task_count"), target.get("task_count")),
+        }
+
+        # Per-task diffs
+        task_diffs = []
+        baseline_tasks = {t["task_id"]: t for t in (baseline.get("tasks") or [])}
+        target_tasks = {t["task_id"]: t for t in (target.get("tasks") or [])}
+        all_task_ids = sorted(set(list(baseline_tasks.keys()) + list(target_tasks.keys())))
+        for tid in all_task_ids:
+            b = baseline_tasks.get(tid)
+            t = target_tasks.get(tid)
+            task_diffs.append({
+                "task_id": tid,
+                "title": (t or b).get("title"),
+                "kind": (t or b).get("kind"),
+                "passed": _diff(b["passed"] if b else None, t["passed"] if t else None),
+                "score": _diff(b["score"] if b else None, t["score"] if t else None),
+                "tok_s": _diff(b["tok_s"] if b else None, t["tok_s"] if t else None),
+                "latency_seconds": _diff(b["latency_seconds"] if b else None, t["latency_seconds"] if t else None),
+            })
+
+        return {
+            "baseline": {"label": baseline_label, "result": baseline},
+            "target": {"label": target_label, "result": target},
+            "diffs": diffs,
+            "task_diffs": task_diffs,
+        }

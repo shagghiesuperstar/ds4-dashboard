@@ -363,9 +363,59 @@ async function saveConfig() {
     $("config-edit-value").value = "";
     $("schema-editor-bar").style.display = "none";
     await refreshConfig();
-    setText("status-message", `Config updated: ${data.key} = ${data.value}`);
+    const restartNeeded = data.updated?.restart_needed;
+    const msg = `Config updated: ${data.updated?.key} = ${data.updated?.value}`;
+    setText("status-message", restartNeeded ? `${msg} (restart needed)` : msg);
   } catch (error) {
     setText("status-message", `Config save error: ${error.message}`);
+  }
+}
+
+async function applyConfig() {
+  const key = $("config-edit-key").value.trim();
+  const value = $("config-edit-value").value.trim();
+  if (!key) return;
+  setText("restart-status", "Applying + restarting...");
+  try {
+    const result = await fetch("/api/config/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    });
+    if (!result.ok) throw new Error(`HTTP ${result.status}`);
+    const data = await result.json();
+    $("config-edit-key").value = "";
+    $("config-edit-value").value = "";
+    $("schema-editor-bar").style.display = "none";
+    await refreshConfig();
+    const r = data.result?.restart || {};
+    if (r.triggered && r.exit_code === 0) {
+      setText("restart-status", "DS4 restarted successfully.");
+    } else if (r.triggered && r.exit_code !== 0) {
+      setText("restart-status", `Restart exit ${r.exit_code}: ${r.stderr || r.stdout || ""}`);
+    } else {
+      setText("restart-status", "No restart needed — override applied.");
+    }
+    setText("status-message", `Applied: ${data.result?.key} = ${data.result?.value}`);
+  } catch (error) {
+    setText("restart-status", `Error: ${error.message}`);
+    setText("status-message", `Apply error: ${error.message}`);
+  }
+}
+
+async function restartDS4() {
+  setText("restart-status", "Restarting DS4...");
+  try {
+    const result = await fetch("/api/restart", { method: "POST" });
+    if (!result.ok) throw new Error(`HTTP ${result.status}`);
+    const data = await result.json();
+    if (data.ok) {
+      setText("restart-status", "DS4 restarted successfully.");
+    } else {
+      setText("restart-status", `Restart failed: ${data.error || `exit ${data.exit_code}`}`);
+    }
+  } catch (error) {
+    setText("restart-status", `Error: ${error.message}`);
   }
 }
 
@@ -470,6 +520,136 @@ async function runBenchmark() {
   }
 }
 
+// ── Benchmark Compare ────────────────────────────────────────
+
+async function compareBenchmarks() {
+  const baseline = $("compare-baseline")?.value?.trim();
+  const target = $("compare-target")?.value?.trim();
+  if (!baseline || !target) {
+    setText("status-message", "Both baseline and target labels are required.");
+    return;
+  }
+  try {
+    const url = `/api/benchmarks/compare?baseline=${encodeURIComponent(baseline)}&target=${encodeURIComponent(target)}`;
+    const data = await fetchJson(url);
+    renderCompareView(data);
+    setText("status-message", `Compared ${baseline} vs ${target}`);
+  } catch (error) {
+    setText("status-message", `Compare error: ${error.message}`);
+  }
+}
+
+function renderCompareView(data) {
+  const container = $("compare-results");
+  if (!container) return;
+
+  const b = data.baseline;
+  const t = data.target;
+  const diffs = data.diffs || {};
+  const taskDiffs = data.task_diffs || [];
+
+  let html = `<div class="compare-header">
+    <div class="compare-label baseline-label">${escHtml(b.label)}</div>
+    <div class="compare-label target-label">${escHtml(t.label)}</div>
+  </div>`;
+
+  // Aggregate comparison table
+  const metrics = [
+    { key: "tok_s_avg", label: "Tokens/s", unit: "tok/s", fmt: (v) => formatNumber(v, 2) },
+    { key: "pass_rate", label: "Pass Rate", unit: "%", fmt: (v) => formatPercent(v) },
+    { key: "latency_p50_seconds", label: "p50 Latency", unit: "s", fmt: (v) => v ? (v * 1000).toFixed(0) + "ms" : "--" },
+    { key: "latency_p95_seconds", label: "p95 Latency", unit: "s", fmt: (v) => v ? (v * 1000).toFixed(0) + "ms" : "--" },
+    { key: "duration_seconds", label: "Duration", unit: "s", fmt: (v) => v ? formatNumber(v, 1) + "s" : "--" },
+    { key: "output_tokens", label: "Output Tokens", unit: "", fmt: (v) => v ? v.toLocaleString() : "--" },
+  ];
+
+  html += `<table class="compare-table">
+    <thead><tr><th>Metric</th><th>${escHtml(b.label)}</th><th>${escHtml(t.label)}</th><th>Δ</th></tr></thead>
+    <tbody>`;
+  for (const m of metrics) {
+    const d = diffs[m.key];
+    if (!d) continue;
+    const bv = d.baseline !== undefined && d.baseline !== null ? m.fmt(d.baseline) : "--";
+    const tv = d.target !== undefined && d.target !== null ? m.fmt(d.target) : "--";
+    let deltaHtml = "--";
+    if (d.delta !== undefined && d.delta !== null) {
+      const dirClass = d.direction === "up" ? "delta-up" : d.direction === "down" ? "delta-down" : "delta-flat";
+      const sign = d.delta > 0 ? "+" : "";
+      // For latency metrics, lower is better — invert direction display
+      const invert = m.key.includes("latency") || m.key === "duration_seconds";
+      const displayDir = invert ? (d.direction === "up" ? "↓" : d.direction === "down" ? "↑" : "—") : (d.direction === "up" ? "↑" : d.direction === "down" ? "↓" : "—");
+      deltaHtml = `<span class="${dirClass}">${displayDir} ${formatNumber(d.delta, 2)} ${m.unit}</span>`;
+    }
+    html += `<tr><td>${m.label}</td><td class="val-baseline">${bv}</td><td class="val-target">${tv}</td><td class="val-delta">${deltaHtml}</td></tr>`;
+  }
+  html += `</tbody></table>`;
+
+  // Per-task comparison table
+  if (taskDiffs.length > 0) {
+    html += `<h4 class="compare-subhead">Per-task breakdown</h4>`;
+    html += `<table class="compare-table compare-task-table">
+      <thead><tr>
+        <th>Task</th>
+        <th>${escHtml(b.label)} Score</th>
+        <th>${escHtml(t.label)} Score</th>
+        <th>Δ Score</th>
+        <th>${escHtml(b.label)} tok/s</th>
+        <th>${escHtml(t.label)} tok/s</th>
+        <th>Δ tok/s</th>
+      </tr></thead>
+      <tbody>`;
+    for (const td of taskDiffs) {
+      const title = escHtml(td.title || td.task_id);
+      const passB = td.passed?.baseline;
+      const passT = td.passed?.target;
+      const scoreB = td.score?.baseline !== undefined && td.score?.baseline !== null ? (td.score.baseline * 100).toFixed(0) + "%" : "--";
+      const scoreT = td.score?.target !== undefined && td.score?.target !== null ? (td.score.target * 100).toFixed(0) + "%" : "--";
+      const tokB = td.tok_s?.baseline !== undefined && td.tok_s?.baseline !== null ? formatNumber(td.tok_s.baseline, 1) : "--";
+      const tokT = td.tok_s?.target !== undefined && td.tok_s?.target !== null ? formatNumber(td.tok_s.target, 1) : "--";
+
+      // Score delta
+      let scoreDeltaHtml = "--";
+      if (td.score?.delta !== undefined && td.score?.delta !== null) {
+        const dir = td.score.delta > 0 ? "delta-up" : td.score.delta < 0 ? "delta-down" : "delta-flat";
+        const sign = td.score.delta > 0 ? "+" : "";
+        scoreDeltaHtml = `<span class="${dir}">${sign}${(td.score.delta * 100).toFixed(1)}%</span>`;
+      }
+      let tokDeltaHtml = "--";
+      if (td.tok_s?.delta !== undefined && td.tok_s?.delta !== null) {
+        const dir = td.tok_s.delta > 0 ? "delta-up" : td.tok_s.delta < 0 ? "delta-down" : "delta-flat";
+        const sign = td.tok_s.delta > 0 ? "+" : "";
+        tokDeltaHtml = `<span class="${dir}">${sign}${formatNumber(td.tok_s.delta, 1)}</span>`;
+      }
+
+      const statusB = passB !== undefined ? (passB ? "✅" : "❌") : "—";
+      const statusT = passT !== undefined ? (passT ? "✅" : "❌") : "—";
+      html += `<tr>
+        <td class="task-title">${statusB} ${statusT} ${title}</td>
+        <td class="val-baseline">${scoreB}</td>
+        <td class="val-target">${scoreT}</td>
+        <td class="val-delta">${scoreDeltaHtml}</td>
+        <td class="val-baseline">${tokB}</td>
+        <td class="val-target">${tokT}</td>
+        <td class="val-delta">${tokDeltaHtml}</td>
+      </tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+
+  // Raw JSON for deep inspection
+  html += `<details class="compare-raw">
+    <summary>Raw comparison data</summary>
+    <pre class="json-viewer">${syntaxHighlight(JSON.stringify(data, null, 2))}</pre>
+  </details>`;
+
+  container.innerHTML = html;
+}
+
+function escHtml(s) {
+  if (!s) return "";
+  return String(s).replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+}
+
 // ── Update ──────────────────────────────────────────────────
 
 async function checkUpdate() {
@@ -558,8 +738,17 @@ async function boot() {
   $("config-save-btn")?.addEventListener("click", () => {
     saveConfig().catch((error) => setText("status-message", error.message));
   });
+  $("config-apply-btn")?.addEventListener("click", () => {
+    applyConfig().catch((error) => setText("status-message", error.message));
+  });
+  $("restart-ds4-btn")?.addEventListener("click", () => {
+    restartDS4().catch((error) => setText("status-message", error.message));
+  });
   $("run-benchmark")?.addEventListener("click", () => {
     runBenchmark().catch((error) => setText("status-message", error.message));
+  });
+  $("compare-benchmarks")?.addEventListener("click", () => {
+    compareBenchmarks().catch((error) => setText("status-message", error.message));
   });
   $("update-check")?.addEventListener("click", () => {
     checkUpdate().catch((error) => setText("status-message", error.message));

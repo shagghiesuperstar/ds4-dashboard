@@ -12,44 +12,92 @@
     <div class="app-shell">
       <header class="topbar" aria-label="Dashboard header">
         <a class="brand" href="/" aria-label="DS4 dashboard home">
-          <svg class="dwarfstar-logo" viewBox="0 0 160 160" role="img" aria-labelledby="logo-title logo-desc">
+          <svg class="dwarfstar-logo" viewBox="0 0 160 160" role="img" aria-labelledby="logo-title logo-desc" data-state="unknown">
             <title id="logo-title">White dwarf telemetry logo</title>
-            <desc id="logo-desc">A pulsing white dwarf core with lensing rings and an accretion disk.</desc>
+            <desc id="logo-desc">A pulsing white dwarf core with gravitational lensing, accretion disk, and telemetry-driven distortion.</desc>
             <defs>
+              <!-- Core emission gradient -->
               <radialGradient id="core-glow" cx="50%" cy="50%" r="50%">
                 <stop offset="0%" stop-color="#ffffff" />
-                <stop offset="34%" stop-color="#dffaff" />
-                <stop offset="70%" stop-color="#00d4ff" stop-opacity="0.42" />
+                <stop offset="30%" stop-color="#dffaff" />
+                <stop offset="60%" stop-color="#00d4ff" stop-opacity="0.50" />
+                <stop offset="85%" stop-color="#00ff41" stop-opacity="0.15" />
                 <stop offset="100%" stop-color="#00ff41" stop-opacity="0" />
               </radialGradient>
+              <!-- Accretion disk gradient — inner hot (white→cyan), outer cool (green→red fringe) -->
               <linearGradient id="disk-glow" x1="0%" x2="100%" y1="50%" y2="50%">
-                <stop offset="0%" stop-color="#00ff41" stop-opacity="0.08" />
-                <stop offset="28%" stop-color="#00ff41" stop-opacity="0.72" />
+                <stop offset="0%" stop-color="#00ff41" stop-opacity="0.06" />
+                <stop offset="22%" stop-color="#00ff41" stop-opacity="0.55" />
+                <stop offset="38%" stop-color="#dffaff" stop-opacity="0.90" />
                 <stop offset="50%" stop-color="#ffffff" />
-                <stop offset="72%" stop-color="#00d4ff" stop-opacity="0.82" />
-                <stop offset="100%" stop-color="#ff003b" stop-opacity="0.16" />
+                <stop offset="62%" stop-color="#00d4ff" stop-opacity="0.85" />
+                <stop offset="78%" stop-color="#ff9500" stop-opacity="0.40" />
+                <stop offset="100%" stop-color="#ff003b" stop-opacity="0.12" />
               </linearGradient>
+              <!-- Inner disk gradient — hotter, more intense -->
+              <linearGradient id="disk-inner" x1="0%" x2="100%" y1="50%" y2="50%">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
+                <stop offset="35%" stop-color="#dffaff" stop-opacity="0.35" />
+                <stop offset="50%" stop-color="#ffffff" stop-opacity="0.60" />
+                <stop offset="65%" stop-color="#00d4ff" stop-opacity="0.30" />
+                <stop offset="100%" stop-color="#00ff41" stop-opacity="0" />
+              </linearGradient>
+              <!-- Blur filter for corona and shadow -->
               <filter id="logo-blur">
                 <feGaussianBlur stdDeviation="3" />
               </filter>
+              <!-- Stronger blur for outer glow -->
+              <filter id="logo-glow">
+                <feGaussianBlur stdDeviation="6" />
+              </filter>
+              <!-- Gravitational lensing distortion — displacement map driven by core gravity -->
+              <filter id="lensing-distort" x="-50%" y="-50%" width="200%" height="200%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="2" seed="42" result="noise" />
+                <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.03 0" in="noise" result="displacement" />
+                <feDisplacementMap in="SourceGraphic" in2="displacement" scale="3" xChannelSelector="R" yChannelSelector="G" />
+              </filter>
             </defs>
-            <g class="logo-stars">
+            <!-- Background starfield — two depth layers -->
+            <g class="starfield starfield-deep">
               <circle cx="27" cy="33" r="1.1" />
               <circle cx="132" cy="29" r="1.4" />
               <circle cx="142" cy="103" r="0.9" />
               <circle cx="29" cy="124" r="1.2" />
               <circle cx="53" cy="19" r="0.7" />
               <circle cx="115" cy="135" r="1" />
+              <circle cx="78" cy="22" r="0.5" />
+              <circle cx="146" cy="55" r="0.6" />
+              <circle cx="12" cy="90" r="0.8" />
+              <circle cx="104" cy="148" r="0.4" />
+              <circle cx="48" cy="145" r="0.6" />
+              <circle cx="135" cy="140" r="0.5" />
             </g>
+            <g class="starfield starfield-near">
+              <circle cx="64" cy="40" r="0.9" />
+              <circle cx="96" cy="38" r="0.8" />
+              <circle cx="44" cy="70" r="0.7" />
+              <circle cx="118" cy="68" r="1" />
+              <circle cx="38" cy="110" r="0.6" />
+              <circle cx="124" cy="112" r="0.9" />
+            </g>
+            <!-- Gravitational lensing rings — Einstein rings at increasing radii -->
             <g class="lensing-rings">
-              <circle cx="80" cy="80" r="58" />
-              <circle cx="80" cy="80" r="43" />
-              <circle cx="80" cy="80" r="28" />
+              <circle cx="80" cy="80" r="62" />
+              <circle cx="80" cy="80" r="48" />
+              <circle cx="80" cy="80" r="34" />
+              <circle cx="80" cy="80" r="22" />
             </g>
-            <ellipse class="accretion-disk disk-shadow" cx="80" cy="80" rx="64" ry="13" />
-            <ellipse class="accretion-disk" cx="80" cy="80" rx="58" ry="9" />
-            <circle class="corona" cx="80" cy="80" r="27" />
-            <circle class="core" cx="80" cy="80" r="13" />
+            <!-- Accretion disk — outer cooler disk -->
+            <ellipse class="accretion-disk disk-shadow" cx="80" cy="80" rx="68" ry="15" />
+            <ellipse class="accretion-disk" cx="80" cy="80" rx="62" ry="11" />
+            <!-- Inner accretion disk — hotter region near the core -->
+            <ellipse class="accretion-disk disk-inner" cx="80" cy="80" rx="36" ry="7" />
+            <!-- Corona — diffuse glowing envelope -->
+            <circle class="corona" cx="80" cy="80" r="30" />
+            <!-- Core — white-hot degenerate matter -->
+            <circle class="core" cx="80" cy="80" r="14" />
+            <!-- Telemetry data-pulse ring (visible when running) -->
+            <circle class="data-pulse-ring" cx="80" cy="80" r="72" />
           </svg>
           <span>
             <strong>DS4</strong>
@@ -190,6 +238,11 @@
                 <input type="text" id="config-edit-key" placeholder="key" spellcheck="false" />
                 <input type="text" id="config-edit-value" placeholder="value" spellcheck="false" />
                 <button id="config-save-btn" type="button">Save</button>
+                <button id="config-apply-btn" type="button">Apply & Restart</button>
+              </div>
+              <div class="restart-bar">
+                <button id="restart-ds4-btn" type="button">Restart DS4</button>
+                <span id="restart-status" class="restart-status"></span>
               </div>
             </div>
           </div>
@@ -208,7 +261,13 @@
             <input id="benchmark-label" type="text" placeholder="compare label" spellcheck="false" />
             <button id="run-benchmark" type="button">Run</button>
           </div>
+          <div class="control-row compare-row">
+            <input id="compare-baseline" type="text" placeholder="baseline label" spellcheck="false" />
+            <input id="compare-target" type="text" placeholder="target label" spellcheck="false" />
+            <button id="compare-benchmarks" type="button">Compare</button>
+          </div>
           <div class="benchmark-results" id="benchmark-results"></div>
+          <div class="compare-results" id="compare-results"></div>
         </section>
 
         <section class="panel mcp-panel" aria-labelledby="mcp-title">

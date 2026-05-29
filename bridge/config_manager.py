@@ -101,6 +101,18 @@ class DS4ConfigManager:
     def get_overrides(self) -> Dict[str, Any]:
         return dict(self._overrides)
 
+    # Keys that require a full DS4 restart to take effect
+    _RESTART_REQUIRED_KEYS: set = {
+        "model",
+        "mtp",
+        "context_window",
+        "binary",
+        "primary_port",
+        "kv_disk_cache",
+        "kv_cache_budget_mib",
+        "metal_shader_dir",
+    }
+
     def set_override(self, key: str, value: Any) -> Dict[str, Any]:
         normalized_key = self._normalize_key(key)
         if not normalized_key:
@@ -110,11 +122,55 @@ class DS4ConfigManager:
         option = schema.get(normalized_key)
         coerced = self._coerce_value(value, option.type if option else "string")
         self._overrides[normalized_key] = coerced
+        restart_needed = normalized_key in self._RESTART_REQUIRED_KEYS
         return {
             "key": normalized_key,
             "value": coerced,
             "schema_known": option is not None,
             "type": option.type if option else "string",
+            "restart_needed": restart_needed,
+        }
+
+    def apply_and_restart(self, key: str, value: Any, restart_script: str) -> Dict[str, Any]:
+        """Set an override and restart DS4 if the key requires it.
+
+        The restart_script is a shell command (e.g. 'bash .../restart-ds4.sh')
+        that launchctl-kickstarts the DS4 service.
+        """
+        normalized_key = self._normalize_key(key)
+        if not normalized_key:
+            raise ValueError("Config key is required.")
+
+        schema = self._load_schema(force_refresh=False)
+        option = schema.get(normalized_key)
+        coerced = self._coerce_value(value, option.type if option else "string")
+        self._overrides[normalized_key] = coerced
+        restart_needed = normalized_key in self._RESTART_REQUIRED_KEYS
+
+        restart_result: Dict[str, Any] = {"triggered": False, "exit_code": -1, "stdout": "", "stderr": ""}
+        if restart_needed:
+            import subprocess
+            try:
+                proc = subprocess.run(
+                    ["bash", restart_script],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                restart_result["triggered"] = True
+                restart_result["exit_code"] = proc.returncode
+                restart_result["stdout"] = proc.stdout
+                restart_result["stderr"] = proc.stderr
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                restart_result["error"] = str(exc)
+
+        return {
+            "key": normalized_key,
+            "value": coerced,
+            "schema_known": option is not None,
+            "type": option.type if option else "string",
+            "restart_needed": restart_needed,
+            "restart": restart_result,
         }
 
     def clear_override(self, key: str) -> bool:

@@ -207,6 +207,44 @@ async def api_clear_config(key: str) -> Dict[str, Any]:
     removed = config_manager.clear_override(key)
     return {"ok": True, "removed": removed, "config": config_manager.get_config()}
 
+# ── Config Apply & Restart ────────────────────────────────────
+
+RESTART_SCRIPT = str(BASE_DIR / "scripts" / "restart-ds4.sh")
+
+class ConfigApplyRequest(BaseModel):
+    key: str
+    value: Any
+    restart: bool = True
+
+@app.post("/api/config/apply")
+async def api_apply_config(request: ConfigApplyRequest) -> Dict[str, Any]:
+    """Apply a config override and optionally restart DS4 if the key requires it."""
+    try:
+        result = config_manager.apply_and_restart(
+            request.key,
+            request.value,
+            restart_script=RESTART_SCRIPT,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "result": result, "config": config_manager.get_config()}
+
+@app.post("/api/restart")
+async def api_restart_ds4() -> Dict[str, Any]:
+    """Restart DS4 via launchctl without changing any config."""
+    import subprocess
+    script = RESTART_SCRIPT
+    try:
+        proc = subprocess.run(["bash", script], capture_output=True, text=True, timeout=60)
+        return {
+            "ok": proc.returncode == 0,
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+        }
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "error": str(exc)}
+
 
 @app.get("/api/config-overrides")
 async def api_config_overrides() -> Dict[str, Any]:
@@ -234,6 +272,20 @@ async def api_run_benchmark(request: BenchmarkRunRequest) -> Dict[str, Any]:
 @app.get("/api/benchmarks/results")
 async def api_benchmark_results() -> Dict[str, Any]:
     return {"results": benchmark_runner.get_last_results()}
+
+
+@app.get("/api/benchmarks/compare")
+async def api_benchmark_compare(baseline: str, target: str) -> Dict[str, Any]:
+    """Compare two benchmark runs by compare_label or run_id.
+    Returns side-by-side results with computed diffs for key metrics.
+    """
+    try:
+        comparison = benchmark_runner.compare(baseline_label=baseline, target_label=target)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return comparison
 
 
 @app.get("/api/update/check")

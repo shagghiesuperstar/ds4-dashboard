@@ -89,7 +89,10 @@ textarea {
   width: 64px;
   height: 64px;
   overflow: visible;
+  contain: layout;
 }
+
+/* ── Starfield (background stars) ── */
 
 .starfield circle {
   fill: #dffaff;
@@ -98,52 +101,119 @@ textarea {
   transition: transform 260ms ease;
 }
 
-.dwarfstar-logo[data-state="running"] .starfield circle {
-  transform: translateX(calc(var(--kv-distortion, 0) * 0.025px));
+.starfield-deep circle {
+  opacity: 0.40;
+  animation: star-twinkle 6s ease-in-out infinite;
 }
+
+.starfield-near circle {
+  opacity: 0.70;
+  animation: star-twinkle 4s ease-in-out infinite reverse;
+}
+
+.dwarfstar-logo[data-state="running"] .starfield circle {
+  transform: translateX(calc(var(--kv-distortion, 0) * 0.03px));
+  animation-duration: 2s;
+}
+
+.dwarfstar-logo[data-state="running"] .starfield-near circle {
+  filter: url("#lensing-distort");
+}
+
+/* ── Gravitational Lensing Rings ── */
 
 .lensing-rings circle {
   fill: none;
   stroke: var(--cyan);
-  stroke-width: 1;
-  opacity: 0.55;
+  stroke-width: 0.8;
+  opacity: 0.50;
   transform-origin: 80px 80px;
-  animation: ring-ripple 4s ease-in-out infinite;
+  animation: ring-ripple 5s ease-in-out infinite;
 }
 
 .lensing-rings circle:nth-child(2) {
-  animation-delay: 650ms;
+  animation-delay: 800ms;
+  stroke-width: 0.6;
+  opacity: 0.35;
 }
 
 .lensing-rings circle:nth-child(3) {
-  animation-delay: 1300ms;
+  animation-delay: 1600ms;
+  stroke-width: 0.4;
+  opacity: 0.25;
 }
+
+.lensing-rings circle:nth-child(4) {
+  animation-delay: 2400ms;
+  stroke-width: 0.3;
+  opacity: 0.15;
+}
+
+/* ── Accretion Disk ── */
 
 .accretion-disk {
   fill: url("#disk-glow");
   opacity: 0.9;
   transform-box: fill-box;
   transform-origin: center;
-  animation: disk-drift 9s linear infinite;
+  animation: disk-drift 10s linear infinite;
 }
 
 .disk-shadow {
-  opacity: 0.24;
+  opacity: 0.20;
   filter: url("#logo-blur");
 }
+
+.disk-inner {
+  fill: url("#disk-inner");
+  opacity: 0.85;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: disk-drift 7s linear infinite reverse;
+}
+
+/* ── Corona (diffuse envelope) ── */
 
 .corona {
   fill: url("#core-glow");
-  filter: url("#logo-blur");
-  animation: corona-flare 3s ease-in-out infinite;
+  filter: url("#logo-glow");
+  animation: corona-flare 4s ease-in-out infinite;
 }
+
+/* ── Core (white-hot degenerate matter) ── */
 
 .core {
   fill: #ffffff;
-  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 24px rgba(0, 212, 255, 0.75));
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 24px rgba(0, 212, 255, 0.75)) drop-shadow(0 0 48px rgba(0, 255, 65, 0.40));
   transform-box: fill-box;
   transform-origin: center;
   animation: core-pulse 3s ease-in-out infinite;
+}
+
+/* ── Telemetry Data-Pulse Ring ── */
+
+.data-pulse-ring {
+  fill: none;
+  stroke: #00ff41;
+  stroke-width: 0.6;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 400ms;
+}
+
+.dwarfstar-logo[data-state="running"] .data-pulse-ring {
+  opacity: 0.30;
+  animation: data-pulse 2s ease-in-out infinite;
+}
+
+.dwarfstar-logo[data-state="running"] .data-pulse-ring {
+  animation-delay: 0ms;
+}
+
+.dwarfstar-logo[data-state="stopped"] .data-pulse-ring,
+.dwarfstar-logo[data-state="error"] .data-pulse-ring {
+  opacity: 0;
 }
 
 .status-chip {
@@ -535,25 +605,69 @@ h2 {
   outline: none;
 }
 
+/* Apply & Restart button — cyan accent to distinguish from Save */
+#config-apply-btn {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0, 212, 255, 0.08);
+}
+#config-apply-btn:hover,
+#config-apply-btn:focus-visible {
+  background: rgba(0, 212, 255, 0.18);
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.28);
+  outline: none;
+}
+
+/* Restart bar — standalone restart button below the editor */
+.restart-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 0;
+}
+.restart-bar button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--amber);
+  border-radius: 6px;
+  background: rgba(255, 149, 0, 0.08);
+  color: var(--amber);
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 180ms, box-shadow 180ms;
+}
+.restart-bar button:hover,
+.restart-bar button:focus-visible {
+  background: rgba(255, 149, 0, 0.18);
+  box-shadow: 0 0 12px rgba(255, 149, 0, 0.28);
+  outline: none;
+}
+.restart-status {
+  font-size: 0.78rem;
+  color: var(--dim);
+}
+
 @keyframes core-pulse {
   0%,
   100% {
-    opacity: 0.92;
+    opacity: 0.90;
     transform: scale(0.92);
   }
   50% {
     opacity: 1;
-    transform: scale(1.12);
+    transform: scale(1.10);
   }
 }
 
 @keyframes corona-flare {
   0%,
   100% {
-    opacity: 0.62;
+    opacity: 0.58;
+    transform: scale(0.95);
   }
   50% {
-    opacity: 0.95;
+    opacity: 0.92;
+    transform: scale(1.05);
   }
 }
 
@@ -569,11 +683,35 @@ h2 {
 @keyframes ring-ripple {
   0%,
   100% {
-    opacity: 0.25;
-    transform: scale(0.98);
+    opacity: 0.22;
+    transform: scale(0.97);
   }
   50% {
-    opacity: 0.72;
+    opacity: 0.68;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes star-twinkle {
+  0%,
+  100% {
+    opacity: 0.40;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes data-pulse {
+  0%,
+  100% {
+    opacity: 0.10;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.35;
     transform: scale(1.04);
   }
 }
@@ -660,4 +798,119 @@ h2 {
     scroll-behavior: auto !important;
     transition-duration: 1ms !important;
   }
+}
+
+/* ── Benchmark Compare View ────────────────────────────────── */
+
+.compare-results {
+  margin-top: 12px;
+  min-height: 40px;
+}
+
+.compare-header {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.compare-label {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font: 700 13px/1.4 monospace;
+}
+
+.baseline-label {
+  background: #00ff4122;
+  color: var(--green);
+}
+
+.target-label {
+  background: #00d4ff22;
+  color: var(--cyan);
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 12px/1.5 monospace;
+  margin-bottom: 12px;
+}
+
+.compare-table th {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--green);
+  font-weight: 600;
+}
+
+.compare-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.compare-table tr:last-child td {
+  border-bottom: none;
+}
+
+.compare-table .val-baseline {
+  color: var(--green);
+}
+
+.compare-table .val-target {
+  color: var(--cyan);
+}
+
+.compare-table .val-delta {
+  font-weight: 600;
+}
+
+.compare-table .task-title {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-subhead {
+  margin: 10px 0 6px;
+  font: 600 13px/1.4 monospace;
+  color: var(--dim);
+}
+
+.delta-up {
+  color: #00ff41;
+}
+
+.delta-down {
+  color: #ff003b;
+}
+
+.delta-flat {
+  color: #888;
+}
+
+.compare-row {
+  margin-top: 6px;
+}
+
+.compare-raw {
+  margin-top: 8px;
+}
+
+.compare-raw summary {
+  cursor: pointer;
+  color: var(--dim);
+  font: 11px/1.4 monospace;
+}
+
+.compare-raw .json-viewer {
+  margin-top: 4px;
+  padding: 8px;
+  background: #00000018;
+  border-radius: 4px;
+  max-height: 240px;
+  overflow: auto;
+  font: 11px/1.4 monospace;
 }
