@@ -70,11 +70,16 @@ function setText(id, value) {
 function setStateChip(status) {
   const chip = $("status-chip");
   const stateLabel = $("state-label");
+  const heroStatus = $("hero-status");
   const rawState = status.state || (status.running ? "running" : "stopped");
   const labelMap = { running: "RUNNING", stopped: "OFFLINE", error: "ERROR", unknown: "UNKNOWN" };
   const displayLabel = labelMap[rawState] || rawState.toUpperCase();
   if (chip) chip.dataset.state = rawState;
   if (stateLabel) stateLabel.textContent = displayLabel;
+  if (heroStatus) {
+    heroStatus.dataset.state = rawState;
+    heroStatus.textContent = displayLabel;
+  }
 }
 
 // ── Memory Gauge Color ─────────────────────────────────────
@@ -136,16 +141,31 @@ function renderStatus(status) {
   // KV cache gauge
   const kvFill = $("kv-fill");
   const kvPct = kv.disk_fill_percent ?? kv.fill_percent;
-  if (kvFill && kvPct !== undefined && kvPct !== null) {
+  const engineRunning = status.state === "running" || status.running === true;
+  const kvDataExists = kvPct !== undefined && kvPct !== null;
+  if (kvFill && kvDataExists) {
     kvFill.style.width = `${Math.min(100, Math.max(0, Number(kvPct)))}%`;
+    kvFill.style.background = "linear-gradient(90deg, var(--green), var(--cyan), var(--amber), var(--red))";
   } else if (kvFill) {
-    kvFill.style.width = "0%";
+    // Engine running but no KV cache data → show dashed/disabled gauge
+    if (engineRunning) {
+      kvFill.style.width = "100%";
+      kvFill.style.background = "repeating-linear-gradient(90deg, var(--dim) 0px, var(--dim) 6px, transparent 6px, transparent 12px)";
+      kvFill.style.opacity = "0.35";
+    } else {
+      kvFill.style.width = "0%";
+      kvFill.style.background = "linear-gradient(90deg, var(--green), var(--cyan), var(--amber), var(--red))";
+    }
   }
   // Show used / budget for KV cache
   const kvUsed = kv.disk_used_bytes || kv.used_bytes;
   const kvBudget = kv.budget_bytes || (kv.budget_mib ? Number(kv.budget_mib) * 1024 * 1024 : null);
   if (kvUsed) {
     setText("kv-label", `${formatBytes(kvUsed)} / ${formatBytes(kvBudget)}`);
+  } else if (kvBudget && engineRunning) {
+    setText("kv-label", `budget: ${formatBytes(kvBudget)} (no cache data yet)`);
+  } else if (engineRunning) {
+    setText("kv-label", "Diskless mode — no KV cache");
   } else if (kvBudget) {
     setText("kv-label", `budget: ${formatBytes(kvBudget)}`);
   } else {
