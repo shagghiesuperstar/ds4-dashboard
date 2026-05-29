@@ -6,6 +6,7 @@
     <meta name="color-scheme" content="dark" />
     <title>DS4 Dwarfstar Dashboard</title>
     <link rel="stylesheet" href="/static/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
     <div class="starfield-layer" aria-hidden="true"></div>
@@ -355,6 +356,13 @@
           </div>
           <div class="benchmark-results" id="benchmark-results"></div>
           <div class="compare-results" id="compare-results"></div>
+          <div class="benchmark-history-section" aria-labelledby="benchmark-history-title">
+            <div class="compare-title-row">
+              <h3 id="benchmark-history-title">Benchmark History</h3>
+              <span id="benchmark-history-status">No history loaded.</span>
+            </div>
+            <canvas id="benchmark-history-chart" height="180" aria-label="Historical benchmark throughput chart"></canvas>
+          </div>
         </section>
 
         <section class="panel mcp-panel" aria-labelledby="mcp-title">
@@ -377,6 +385,7 @@
           </div>
           <div class="update-bar">
             <button id="update-check" type="button">Check Release</button>
+            <button id="update-rollback" type="button">Rollback</button>
             <span id="update-result">No release check yet.</span>
           </div>
         </section>

@@ -310,6 +310,10 @@ textarea {
   padding-top: 20px;
 }
 
+.panel-span-2 {
+  grid-column: span 2;
+}
+
 .hero-panel,
 .panel {
   border: 1px solid var(--border);
@@ -401,20 +405,10 @@ h2 {
   padding: 18px;
 }
 
-.memory-panel,
-.schema-panel {
+.memory-panel {
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-
-.config-panel {
-  grid-column: 1 / 2;
-}
-
-.schema-panel {
-  grid-column: 2 / 3;
-  grid-row: span 2;
 }
 
 .panel-header {
@@ -539,6 +533,12 @@ h2 {
   border: 1px solid rgba(0, 212, 255, 0.18);
   border-radius: 8px;
   background: #0d0d0d;
+}
+
+.schema-item.overridden {
+  border-color: rgba(0, 212, 255, 0.72);
+  background: linear-gradient(90deg, rgba(0, 212, 255, 0.10), #0d0d0d 34%);
+  box-shadow: inset 3px 0 0 var(--cyan), 0 0 14px rgba(0, 212, 255, 0.12);
 }
 
 .schema-title {
@@ -754,6 +754,47 @@ h2 {
 }
 .model-panel .model-selector button:hover { background: #222; }
 
+/* ── Update Panel ─────────────────────────── */
+
+.update-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 12px;
+}
+
+.update-bar button {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--cyan-border);
+  border-radius: 6px;
+  background: #0d0d0d;
+  color: var(--cyan);
+  cursor: pointer;
+  font-size: 0.76rem;
+}
+
+.update-bar button:hover,
+.update-bar button:focus-visible {
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.22);
+  outline: none;
+}
+
+#update-rollback {
+  border-color: rgba(255, 149, 0, 0.46);
+  color: var(--amber);
+}
+
+#update-result {
+  min-width: 0;
+  color: var(--dim);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
 @keyframes core-pulse {
   0%,
   100% {
@@ -858,8 +899,7 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .config-panel,
-  .schema-panel {
+  .hero-panel.panel-span-2 {
     grid-column: auto;
     grid-row: auto;
   }
@@ -991,6 +1031,35 @@ h2 {
 .benchmark-results {
   display: grid;
   gap: 6px;
+}
+
+.benchmark-history-section {
+  display: grid;
+  gap: 10px;
+  min-height: 260px;
+  padding: 12px;
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 212, 255, 0.028);
+}
+
+.benchmark-history-section .compare-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 0;
+}
+
+#benchmark-history-status {
+  color: var(--dim);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+#benchmark-history-chart {
+  width: 100%;
+  min-height: 190px;
 }
 
 .benchmark-row {

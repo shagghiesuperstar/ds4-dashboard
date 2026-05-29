@@ -131,8 +131,24 @@ def get_dashboard_config() -> Dict[str, Any]:
     return config_manager.get_config()
 
 
-def get_config_schema() -> Dict[str, Dict[str, Any]]:
-    return config_manager.get_schema()
+def get_config_schema(*, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+    schema = config_manager.get_schema(force_refresh=force_refresh)
+    enriched: Dict[str, Dict[str, Any]] = {}
+    for key, meta in schema.items():
+        item = dict(meta)
+        default = item.get("default")
+        current = item.get("current", default)
+        item["current"] = current
+        item["overridden"] = not config_values_equal(default, current)
+        enriched[key] = item
+    return enriched
+
+
+def config_values_equal(left: Any, right: Any) -> bool:
+    try:
+        return json.dumps(left, sort_keys=True, default=str) == json.dumps(right, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return str(left) == str(right)
 
 
 def get_status_payload() -> Dict[str, Any]:
@@ -424,7 +440,7 @@ async def api_config() -> Dict[str, Any]:
 
 @app.get("/api/config-schema")
 async def api_config_schema(refresh: bool = False) -> Dict[str, Dict[str, Any]]:
-    return config_manager.get_schema(force_refresh=refresh)
+    return get_config_schema(force_refresh=refresh)
 
 
 @app.patch("/api/config")
@@ -557,6 +573,11 @@ async def api_benchmark_results() -> Dict[str, Any]:
     return {"results": benchmark_runner.get_last_results()}
 
 
+@app.get("/api/benchmarks/history")
+async def api_benchmark_history() -> Dict[str, Any]:
+    return {"history": benchmark_runner.get_history()}
+
+
 @app.post("/api/benchmarks/compare")
 async def api_run_benchmark_compare(request: BenchmarkCompareRequest) -> Dict[str, Any]:
     try:
@@ -589,6 +610,11 @@ async def api_update_check() -> Dict[str, Any]:
 @app.post("/api/update")
 async def api_update(request: UpdateRequest) -> Dict[str, Any]:
     return updater.update(apply=request.apply, asset_url=request.asset_url, sha256=request.sha256)
+
+
+@app.post("/api/update/rollback")
+async def api_update_rollback() -> Dict[str, Any]:
+    return updater.rollback()
 
 
 @app.get("/api/mcp/manifest")

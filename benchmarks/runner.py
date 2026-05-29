@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import statistics
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -14,9 +16,18 @@ from .suites import get_suite, list_suites
 
 
 class BenchmarkRunner:
-    def __init__(self, engine_client: DS4EngineClient, *, model_averages: Optional[ModelRunningAverages] = None) -> None:
+    def __init__(
+        self,
+        engine_client: DS4EngineClient,
+        *,
+        model_averages: Optional[ModelRunningAverages] = None,
+        history_path: Optional[Path] = None,
+        history_limit: int = 200,
+    ) -> None:
         self.engine_client = engine_client
         self.model_averages = model_averages
+        self.history_path = history_path or Path(__file__).resolve().parent / "history.json"
+        self.history_limit = max(1, int(history_limit))
         self._last_results: List[Dict[str, Any]] = []
 
     def list_suites(self) -> List[Dict[str, Any]]:
@@ -24,6 +35,9 @@ class BenchmarkRunner:
 
     def get_last_results(self) -> List[Dict[str, Any]]:
         return list(self._last_results)
+
+    def get_history(self) -> List[Dict[str, Any]]:
+        return self._load_history()
 
     def run_suite(
         self,
@@ -61,6 +75,7 @@ class BenchmarkRunner:
                         "passed": scoring["passed"] if generation.get("ok") else False,
                         "score": scoring["score"] if generation.get("ok") else 0.0,
                         "marker_hits": scoring["marker_hits"] if generation.get("ok") else [],
+                        "criteria": scoring.get("criteria", {}) if generation.get("ok") else {},
                         "latency_seconds": generation.get("latency_seconds", 0.0),
                         "output_tokens": generation.get("output_tokens", 0),
                         "tok_s": generation.get("tok_s"),
@@ -105,7 +120,84 @@ class BenchmarkRunner:
         }
         self._last_results.insert(0, result)
         self._last_results = self._last_results[:20]
+        self._append_history(suite, result)
         return result
+
+    def _append_history(self, suite: Dict[str, Any], result: Dict[str, Any]) -> None:
+        entry = self._history_entry(suite, result)
+        history = self._load_history()
+        history.append(entry)
+        history = history[-self.history_limit:]
+        self._write_history(history)
+
+    def _history_entry(self, suite: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "timestamp": datetime.fromtimestamp(float(result["completed_at"]), timezone.utc).isoformat(),
+            "suite": result.get("suite_id"),
+            "suite_name": result.get("suite_name") or suite.get("name"),
+            "label": suite.get("name") or result.get("suite_id"),
+            "compare_label": result.get("compare_label"),
+            "tok_s": result.get("tok_s_avg"),
+            "pass_rate": result.get("pass_rate"),
+            "tasks": self._history_tasks(result.get("tasks") or []),
+        }
+
+    def _history_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for task in tasks:
+            task_id = str(task.get("task_id") or task.get("title") or "task")
+            row = grouped.setdefault(
+                task_id,
+                {
+                    "name": task.get("title") or task_id,
+                    "durations": [],
+                    "tok_s_values": [],
+                    "passed": 0,
+                    "total": 0,
+                },
+            )
+            row["total"] += 1
+            if task.get("passed"):
+                row["passed"] += 1
+            if task.get("latency_seconds") is not None:
+                row["durations"].append(float(task.get("latency_seconds") or 0.0))
+            if task.get("tok_s") is not None:
+                row["tok_s_values"].append(float(task["tok_s"]))
+
+        history_tasks = []
+        for row in grouped.values():
+            durations = row.pop("durations")
+            tok_s_values = row.pop("tok_s_values")
+            history_tasks.append(
+                {
+                    "name": row["name"],
+                    "duration_s": statistics.fmean(durations) if durations else None,
+                    "tok_s": statistics.fmean(tok_s_values) if tok_s_values else None,
+                    "passed": row["passed"],
+                    "total": row["total"],
+                }
+            )
+        return history_tasks
+
+    def _load_history(self) -> List[Dict[str, Any]]:
+        if not self.history_path.exists():
+            return []
+        try:
+            payload = json.loads(self.history_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        if not isinstance(payload, list):
+            return []
+        return [item for item in payload if isinstance(item, dict)]
+
+    def _write_history(self, history: List[Dict[str, Any]]) -> None:
+        try:
+            self.history_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self.history_path.with_suffix(f"{self.history_path.suffix}.tmp")
+            tmp_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+            tmp_path.replace(self.history_path)
+        except OSError:
+            return
 
     def _percentile(self, values: List[float], percentile: int) -> Optional[float]:
         if not values:

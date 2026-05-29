@@ -13,6 +13,7 @@ const state = {
   compareProfiles: [],
   tokensHistory: [],
   systemHistory: [],
+  benchmarkHistoryChart: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -370,6 +371,7 @@ function renderSchema(schema) {
   for (const [key, meta] of entries) {
     const item = document.createElement("article");
     item.className = "schema-item";
+    if (meta.overridden) item.classList.add("overridden");
 
     const title = document.createElement("div");
     title.className = "schema-title";
@@ -653,6 +655,103 @@ function renderBenchmarkResults(results) {
   setText("benchmark-summary", results.status || "done");
 }
 
+async function renderBenchmarkHistory() {
+  const canvas = $("benchmark-history-chart");
+  if (!canvas) return;
+
+  const status = $("benchmark-history-status");
+  let payload;
+  try {
+    payload = await fetchJson("/api/benchmarks/history");
+  } catch (error) {
+    if (status) status.textContent = `History error: ${error.message}`;
+    return;
+  }
+
+  const history = Array.isArray(payload) ? payload : payload.history || [];
+  const rows = history
+    .map((entry) => ({
+      ...entry,
+      label: entry.label || entry.suite_name || entry.suite || "Benchmark",
+      timestampMs: Date.parse(entry.timestamp),
+      tokValue: entry.tok_s === null || entry.tok_s === undefined ? null : Number(entry.tok_s),
+    }))
+    .filter((entry) => Number.isFinite(entry.timestampMs) && Number.isFinite(entry.tokValue))
+    .sort((a, b) => a.timestampMs - b.timestampMs);
+
+  if (!rows.length) {
+    if (status) status.textContent = "No benchmark history yet.";
+    if (state.benchmarkHistoryChart) {
+      state.benchmarkHistoryChart.destroy();
+      state.benchmarkHistoryChart = null;
+    }
+    return;
+  }
+  if (typeof Chart === "undefined") {
+    if (status) status.textContent = "Chart.js unavailable.";
+    return;
+  }
+
+  const labels = rows.map((row) => new Date(row.timestampMs).toLocaleString());
+  const suiteLabels = [...new Set(rows.map((row) => row.label))];
+  const palette = ["#00ff41", "#00d4ff", "#ff9500", "#ff003b", "#dffaff", "#a6ff00"];
+  const datasets = suiteLabels.map((label, index) => ({
+    label,
+    data: rows.map((row) => (row.label === label ? row.tokValue : null)),
+    historyRows: rows.map((row) => (row.label === label ? row : null)),
+    borderColor: palette[index % palette.length],
+    backgroundColor: `${palette[index % palette.length]}22`,
+    pointRadius: 3,
+    pointHoverRadius: 5,
+    spanGaps: true,
+    tension: 0.25,
+  }));
+
+  if (state.benchmarkHistoryChart) state.benchmarkHistoryChart.destroy();
+  state.benchmarkHistoryChart = new Chart(canvas, {
+    type: "line",
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "nearest", intersect: false },
+      scales: {
+        x: {
+          ticks: { color: "#808080", maxRotation: 35, minRotation: 0 },
+          grid: { color: "#00ff4118" },
+        },
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: "tok/s", color: "#808080" },
+          ticks: { color: "#808080" },
+          grid: { color: "#00ff4118" },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: "#e0e0e0" } },
+        tooltip: {
+          callbacks: {
+            title(items) {
+              const point = items[0];
+              const row = point?.dataset?.historyRows?.[point.dataIndex];
+              return row ? new Date(row.timestampMs).toLocaleString() : point?.label || "";
+            },
+            label(context) {
+              const row = context.dataset.historyRows?.[context.dataIndex] || {};
+              const suite = row.suite_name || row.suite || context.dataset.label;
+              const pass = row.pass_rate === undefined || row.pass_rate === null ? "--" : formatPercent(row.pass_rate);
+              const tok = context.parsed.y === null || context.parsed.y === undefined ? "--" : `${formatNumber(context.parsed.y, 2)} tok/s`;
+              return `${suite}: ${tok}, pass ${pass}`;
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (status) status.textContent = `${rows.length} runs`;
+}
+
 async function runBenchmark() {
   const suiteId = $("benchmark-suite")?.value || "quick_smoke";
   const label = $("benchmark-label")?.value || "";
@@ -665,6 +764,7 @@ async function runBenchmark() {
     if (!result.ok) throw new Error(`HTTP ${result.status}`);
     const data = await result.json();
     renderBenchmarkResults(data);
+    await renderBenchmarkHistory();
     setText("status-message", `Benchmark ${suiteId} completed.`);
   } catch (error) {
     setText("status-message", `Benchmark error: ${error.message}`);
@@ -697,6 +797,7 @@ async function compareBenchmarks() {
     if (!result.ok) throw new Error(`HTTP ${result.status}`);
     const data = await result.json();
     renderCompareView(data);
+    await renderBenchmarkHistory();
     setText("benchmark-summary", "compared");
     setText("status-message", `Compared ${configA.label} vs ${configB.label}`);
   } catch (error) {
@@ -825,6 +926,23 @@ async function checkUpdate() {
     }
   } catch (error) {
     setText("update-result", `Error: ${error.message}`);
+  }
+}
+
+async function rollbackUpdate() {
+  setText("update-result", "Rolling back...");
+  try {
+    const response = await fetch("/api/update/rollback", { method: "POST" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (data.ok) {
+      const name = data.backup_path ? data.backup_path.split("/").pop() : "latest backup";
+      setText("update-result", `Rolled back from ${name}. Restart DS4 to apply.`);
+    } else {
+      setText("update-result", data.error || "Rollback failed.");
+    }
+  } catch (error) {
+    setText("update-result", `Rollback error: ${error.message}`);
   }
 }
 
@@ -974,6 +1092,9 @@ async function boot() {
   $("update-check")?.addEventListener("click", () => {
     checkUpdate().catch((error) => setText("status-message", error.message));
   });
+  $("update-rollback")?.addEventListener("click", () => {
+    rollbackUpdate().catch((error) => setText("status-message", error.message));
+  });
   $("switch-model-btn")?.addEventListener("click", () => {
     switchModel().catch((error) => setText("status-message", error.message));
   });
@@ -982,6 +1103,7 @@ async function boot() {
   await Promise.all([
     refreshConfig().catch((error) => setText("status-message", error.message)),
     refreshBenchmarks().catch((error) => console.warn("benchmarks:", error.message)),
+    renderBenchmarkHistory().catch((error) => console.warn("history:", error.message)),
     refreshMCP().catch((error) => console.warn("mcp:", error.message)),
     refreshModelList().catch((error) => console.warn("models:", error.message)),
   ]);
