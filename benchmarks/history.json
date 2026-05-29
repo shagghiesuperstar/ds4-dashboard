@@ -1,1 +1,126 @@
-[]
+[
+  {
+    "timestamp": "2026-05-29T18:31:52.091047+00:00",
+    "suite": "agentic_smoke",
+    "suite_name": "Agentic Smoke Test",
+    "label": "Agentic Smoke Test",
+    "compare_label": "Current config:agentic_smoke",
+    "tok_s": 6.518769290630426,
+    "pass_rate": 0.0,
+    "tasks": [
+      {
+        "name": "Weather Lookup",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Calculator Chain",
+        "duration_s": 35.74294312500001,
+        "tok_s": 6.518769290630426,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Code Execution",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Fact Verification",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Planning",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-05-29T18:35:03.717275+00:00",
+    "suite": "agentic_smoke",
+    "suite_name": "Agentic Smoke Test",
+    "label": "Agentic Smoke Test",
+    "compare_label": "Model: DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf:agentic_smoke",
+    "tok_s": 31.620927732160514,
+    "pass_rate": 20.0,
+    "tasks": [
+      {
+        "name": "Weather Lookup",
+        "duration_s": 4.585570708999967,
+        "tok_s": 31.620927732160514,
+        "passed": 1,
+        "total": 1
+      },
+      {
+        "name": "Calculator Chain",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Code Execution",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Fact Verification",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Planning",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-05-29T20:10:30.833374+00:00",
+    "suite": "full_coding",
+    "suite_name": "Full Coding Eval",
+    "label": "Full Coding Eval",
+    "compare_label": null,
+    "tok_s": 6.175869247821945,
+    "pass_rate": 33.33333333333333,
+    "tasks": [
+      {
+        "name": "Dedupe Preserve Order",
+        "duration_s": 39.50860845799997,
+        "tok_s": 6.175869247821945,
+        "passed": 1,
+        "total": 1
+      },
+      {
+        "name": "Parse Duration",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Bug Fix Average",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      }
+    ]
+  }
+]
