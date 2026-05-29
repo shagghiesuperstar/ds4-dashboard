@@ -28,22 +28,47 @@ class DS4EngineClient:
         self.config = config
         self.metrics_url = config.metrics_url or self._derive_metrics_url(config.telem_url)
         self.completion_url = config.completion_url or f"http://{config.host}:{config.port}/v1/chat/completions"
+        self._telemetry_supported: bool | None = None  # None = untested, True/False = cached
 
     def get_status(self) -> Dict[str, Any]:
         checked_at = time.time()
         port_open = self._is_port_open()
         pid = self._pid_for_port() if port_open else None
-        telemetry, telemetry_error = self.get_raw_telemetry() if port_open else (None, None)
+
+        # Only probe telemetry once; cache the result to avoid 404 spam
+        if port_open and self._telemetry_supported is None:
+            telemetry, telemetry_error = self.get_raw_telemetry()
+            if telemetry_error and "404" in telemetry_error:
+                self._telemetry_supported = False
+            elif telemetry_error:
+                # transient error (connection refused, timeout) — retry next poll
+                self._telemetry_supported = None
+            else:
+                self._telemetry_supported = True
+        elif port_open and self._telemetry_supported is False:
+            # Already confirmed unsupported — skip probing, show clean message
+            telemetry = None
+            telemetry_error = None
+        elif port_open and self._telemetry_supported is True:
+            telemetry, telemetry_error = self.get_raw_telemetry()
+        else:
+            telemetry = None
+            telemetry_error = None
 
         running = port_open
         state = "running" if running else "stopped"
         message = "DS4 port is accepting connections."
         if not running:
             message = f"DS4 is not accepting connections on port {self.config.port}."
-        elif telemetry_error:
+        elif telemetry_error and self._telemetry_supported is not False:
             message = f"DS4 port is open; telemetry is idle or unavailable: {telemetry_error}"
+        elif self._telemetry_supported is False:
+            message = "DS4 port is open; telemetry endpoints are not exposed by this engine."
+            telemetry_error = None  # suppress raw 404 from API response
         elif telemetry:
             message = "DS4 telemetry online."
+        else:
+            message = "DS4 port is open; no telemetry data available."
 
         return {
             "engine": "ds4",
