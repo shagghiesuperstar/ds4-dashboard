@@ -1037,10 +1037,12 @@ h2 {
   display: grid;
   gap: 10px;
   min-height: 260px;
+  max-height: 360px;
   padding: 12px;
   border: 1px solid rgba(0, 212, 255, 0.18);
   border-radius: 8px;
   background: rgba(0, 212, 255, 0.028);
+  overflow: hidden;
 }
 
 .benchmark-history-section .compare-title-row {
@@ -1059,7 +1061,9 @@ h2 {
 
 #benchmark-history-chart {
   width: 100%;
-  min-height: 190px;
+  height: 190px;
+  max-height: 260px;
+  min-height: 140px;
 }
 
 .benchmark-row {
