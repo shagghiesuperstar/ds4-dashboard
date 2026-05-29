@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 
 @dataclass(frozen=True)
@@ -17,18 +17,23 @@ class EngineClientConfig:
     port: int
     telem_url: str
     binary_path: Path
+    metrics_url: Optional[str] = None
+    completion_url: Optional[str] = None
     request_timeout_seconds: float = 0.75
+    generation_timeout_seconds: float = 45.0
 
 
 class DS4EngineClient:
     def __init__(self, config: EngineClientConfig) -> None:
         self.config = config
+        self.metrics_url = config.metrics_url or self._derive_metrics_url(config.telem_url)
+        self.completion_url = config.completion_url or f"http://{config.host}:{config.port}/v1/chat/completions"
 
     def get_status(self) -> Dict[str, Any]:
         checked_at = time.time()
         port_open = self._is_port_open()
         pid = self._pid_for_port() if port_open else None
-        telemetry, telemetry_error = self._fetch_telem() if port_open else (None, None)
+        telemetry, telemetry_error = self.get_raw_telemetry() if port_open else (None, None)
 
         running = port_open
         state = "running" if running else "stopped"
@@ -57,6 +62,118 @@ class DS4EngineClient:
             "binary": str(self.config.binary_path),
         }
 
+    def get_metrics(self) -> Dict[str, Any]:
+        telemetry, error = self.get_raw_telemetry()
+        return {
+            "telemetry": self._normalize_telemetry(telemetry or {}),
+            "telemetry_raw": telemetry,
+            "telemetry_error": error,
+            "port_open": self._is_port_open(),
+            "checked_at": time.time(),
+        }
+
+    def get_raw_telemetry(self) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+        candidates = [self.config.telem_url]
+        if self.metrics_url not in candidates:
+            candidates.append(self.metrics_url)
+
+        errors: list[str] = []
+        merged: Dict[str, Any] = {}
+        saw_payload = False
+        for url in candidates:
+            payload, error = self._fetch_json_url(url)
+            if error:
+                errors.append(f"{url}: {error}")
+                continue
+            if payload is None:
+                continue
+            saw_payload = True
+            if isinstance(payload, dict):
+                merged.update(payload)
+            else:
+                merged[url.rsplit("/", 1)[-1] or "value"] = payload
+
+        if saw_payload:
+            return merged, None
+        return None, "; ".join(errors) if errors else None
+
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 256,
+        temperature: float = 0.0,
+        timeout_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if not self._is_port_open():
+            return {
+                "ok": False,
+                "text": "",
+                "error": f"DS4 is not accepting connections on port {self.config.port}.",
+                "latency_seconds": 0.0,
+                "output_tokens": 0,
+                "tok_s": None,
+            }
+
+        endpoints = (
+            (
+                self.completion_url,
+                {
+                    "model": "ds4",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "stream": False,
+                },
+                "chat",
+            ),
+            (
+                f"http://{self.config.host}:{self.config.port}/completion",
+                {
+                    "prompt": prompt,
+                    "n_predict": max_tokens,
+                    "temperature": temperature,
+                    "stream": False,
+                },
+                "completion",
+            ),
+        )
+
+        timeout = timeout_seconds or self.config.generation_timeout_seconds
+        errors: list[str] = []
+        for url, payload, style in endpoints:
+            started_at = time.perf_counter()
+            raw, error = self._post_json_url(url, payload, timeout_seconds=timeout)
+            latency = time.perf_counter() - started_at
+            if error:
+                errors.append(f"{url}: {error}")
+                continue
+
+            text = self._extract_generation_text(raw, style)
+            usage = raw.get("usage", {}) if isinstance(raw, dict) else {}
+            completion_tokens = self._first_number(usage, ("completion_tokens", "output_tokens", "tokens"))
+            output_tokens = int(completion_tokens) if completion_tokens is not None else self._estimate_tokens(text)
+            tok_s = output_tokens / latency if latency > 0 and output_tokens else None
+            return {
+                "ok": True,
+                "text": text,
+                "error": None,
+                "latency_seconds": latency,
+                "output_tokens": output_tokens,
+                "tok_s": tok_s,
+                "raw": raw,
+                "endpoint": url,
+            }
+
+        return {
+            "ok": False,
+            "text": "",
+            "error": "; ".join(errors) if errors else "No completion endpoint responded.",
+            "latency_seconds": 0.0,
+            "output_tokens": 0,
+            "tok_s": None,
+        }
+
     def _is_port_open(self) -> bool:
         try:
             with socket.create_connection(
@@ -67,8 +184,8 @@ class DS4EngineClient:
         except OSError:
             return False
 
-    def _fetch_telem(self) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
-        request = urllib.request.Request(self.config.telem_url, headers={"Accept": "application/json"})
+    def _fetch_json_url(self, url: str) -> tuple[Optional[Any], Optional[str]]:
+        request = urllib.request.Request(url, headers={"Accept": "application/json"})
         try:
             with urllib.request.urlopen(request, timeout=self.config.request_timeout_seconds) as response:
                 body = response.read().decode("utf-8", errors="replace")
@@ -89,9 +206,42 @@ class DS4EngineClient:
         except json.JSONDecodeError:
             return {"raw": body[:2000]}, None
 
-        if isinstance(parsed, dict):
-            return parsed, None
-        return {"value": parsed}, None
+        return parsed, None
+
+    def _post_json_url(
+        self,
+        url: str,
+        payload: Dict[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> tuple[Dict[str, Any], Optional[str]]:
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=body,
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                raw_body = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            return {}, f"HTTP {exc.code} {detail}".strip()
+        except urllib.error.URLError as exc:
+            return {}, str(exc.reason)
+        except TimeoutError:
+            return {}, "request timed out"
+        except OSError as exc:
+            return {}, str(exc)
+
+        if not raw_body.strip():
+            return {}, None
+        try:
+            parsed = json.loads(raw_body)
+        except json.JSONDecodeError:
+            return {"text": raw_body}, None
+        return parsed if isinstance(parsed, dict) else {"value": parsed}, None
 
     def _pid_for_port(self) -> Optional[int]:
         command = ["lsof", "-nP", f"-iTCP:{self.config.port}", "-sTCP:LISTEN", "-t"]
@@ -126,6 +276,10 @@ class DS4EngineClient:
             telemetry,
             ("tok_s", "tokens_per_second", "tokens_sec", "tps", "token_s", "tokens_per_sec"),
         )
+        prefill_tps = self._first_number(
+            telemetry,
+            ("prefill_tok_s", "prefill_tokens_per_second", "prompt_tok_s", "prompt_tokens_per_second"),
+        )
         prefill_ms = self._first_number(
             telemetry,
             ("prefill_ms", "prefill_latency_ms", "prompt_ms", "prompt_eval_ms"),
@@ -135,11 +289,12 @@ class DS4EngineClient:
 
         normalized = {
             "tok_s": tokens,
+            "prefill_tok_s": prefill_tps,
             "prefill_latency_ms": prefill_ms,
             "uptime_seconds": uptime,
             "kv_cache": kv_cache,
         }
-        for key in ("model", "backend", "version", "build"):
+        for key in ("model", "backend", "version", "build", "requests", "active_requests"):
             if key in telemetry:
                 normalized[key] = telemetry[key]
         return normalized
@@ -151,14 +306,17 @@ class DS4EngineClient:
 
         used_bytes = self._first_number(kv, ("used_bytes", "bytes_used", "used"))
         total_bytes = self._first_number(kv, ("total_bytes", "bytes_total", "capacity"))
+        budget_bytes = self._first_number(kv, ("budget_bytes", "bytes_budget", "budget"))
         fill_percent = self._first_number(kv, ("fill_percent", "used_percent", "percent"))
-        if fill_percent is None and used_bytes is not None and total_bytes:
-            fill_percent = used_bytes / total_bytes * 100
+        denominator = total_bytes or budget_bytes
+        if fill_percent is None and used_bytes is not None and denominator:
+            fill_percent = used_bytes / denominator * 100
 
         return {
             **kv,
             "used_bytes": used_bytes,
             "total_bytes": total_bytes,
+            "budget_bytes": budget_bytes,
             "fill_percent": fill_percent,
         }
 
@@ -175,3 +333,32 @@ class DS4EngineClient:
                 except ValueError:
                     continue
         return None
+
+    def _extract_generation_text(self, raw: Dict[str, Any], style: str) -> str:
+        if not isinstance(raw, dict):
+            return ""
+        if style == "chat":
+            choices = raw.get("choices")
+            if isinstance(choices, list) and choices:
+                first = choices[0]
+                if isinstance(first, dict):
+                    message = first.get("message")
+                    if isinstance(message, dict) and isinstance(message.get("content"), str):
+                        return message["content"]
+                    if isinstance(first.get("text"), str):
+                        return first["text"]
+        for key in ("content", "text", "response", "completion", "value"):
+            value = raw.get(key)
+            if isinstance(value, str):
+                return value
+        return ""
+
+    def _estimate_tokens(self, text: str) -> int:
+        if not text:
+            return 0
+        return max(1, int(len(text.split()) * 1.35))
+
+    def _derive_metrics_url(self, telem_url: str) -> str:
+        if telem_url.endswith("/telem"):
+            return f"{telem_url[:-6]}/metrics"
+        return telem_url.rstrip("/") + "/metrics"

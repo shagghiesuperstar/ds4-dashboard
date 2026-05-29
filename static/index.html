@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
+    <div class="starfield-layer" aria-hidden="true"></div>
     <div class="app-shell">
       <header class="topbar" aria-label="Dashboard header">
         <a class="brand" href="/" aria-label="DS4 dashboard home">
@@ -17,22 +18,22 @@
             <defs>
               <radialGradient id="core-glow" cx="50%" cy="50%" r="50%">
                 <stop offset="0%" stop-color="#ffffff" />
-                <stop offset="35%" stop-color="#c9f7ff" />
-                <stop offset="68%" stop-color="#00d4ff" stop-opacity="0.45" />
+                <stop offset="34%" stop-color="#dffaff" />
+                <stop offset="70%" stop-color="#00d4ff" stop-opacity="0.42" />
                 <stop offset="100%" stop-color="#00ff41" stop-opacity="0" />
               </radialGradient>
               <linearGradient id="disk-glow" x1="0%" x2="100%" y1="50%" y2="50%">
-                <stop offset="0%" stop-color="#00ff41" stop-opacity="0.1" />
-                <stop offset="30%" stop-color="#00d4ff" stop-opacity="0.8" />
+                <stop offset="0%" stop-color="#00ff41" stop-opacity="0.08" />
+                <stop offset="28%" stop-color="#00ff41" stop-opacity="0.72" />
                 <stop offset="50%" stop-color="#ffffff" />
-                <stop offset="70%" stop-color="#00d4ff" stop-opacity="0.8" />
-                <stop offset="100%" stop-color="#00ff41" stop-opacity="0.1" />
+                <stop offset="72%" stop-color="#00d4ff" stop-opacity="0.82" />
+                <stop offset="100%" stop-color="#ff003b" stop-opacity="0.16" />
               </linearGradient>
               <filter id="logo-blur">
                 <feGaussianBlur stdDeviation="3" />
               </filter>
             </defs>
-            <g class="starfield" data-kv-field>
+            <g class="logo-stars">
               <circle cx="27" cy="33" r="1.1" />
               <circle cx="132" cy="29" r="1.4" />
               <circle cx="142" cy="103" r="0.9" />
@@ -40,7 +41,7 @@
               <circle cx="53" cy="19" r="0.7" />
               <circle cx="115" cy="135" r="1" />
             </g>
-            <g class="lensing-rings" data-lensing-rings>
+            <g class="lensing-rings">
               <circle cx="80" cy="80" r="58" />
               <circle cx="80" cy="80" r="43" />
               <circle cx="80" cy="80" r="28" />
@@ -52,17 +53,20 @@
           </svg>
           <span>
             <strong>DS4</strong>
-            <span>Inference Engine</span>
+            <span>Dwarfstar Control</span>
           </span>
         </a>
-        <div class="status-chip" id="status-chip" data-state="unknown">
-          <span class="status-dot" aria-hidden="true"></span>
-          <span id="state-label">UNKNOWN</span>
+        <div class="topbar-actions">
+          <span class="endpoint-pill" id="endpoint-pill">127.0.0.1:8001</span>
+          <div class="status-chip" id="status-chip" data-state="unknown">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="state-label">UNKNOWN</span>
+          </div>
         </div>
       </header>
 
       <main class="dashboard-grid">
-        <section class="hero-panel" aria-labelledby="status-title">
+        <section class="hero-panel panel-span-2" aria-labelledby="status-title">
           <div class="section-heading">
             <p>Live Engine Core</p>
             <h1 id="status-title">Dwarfstar Telemetry</h1>
@@ -71,6 +75,10 @@
             <article>
               <span>Tokens/sec</span>
               <strong id="tokens-sec">--</strong>
+            </article>
+            <article>
+              <span>Prefill</span>
+              <strong id="prefill-sec">--</strong>
             </article>
             <article>
               <span>Context</span>
@@ -88,27 +96,60 @@
           <div class="signal-line" id="status-message">Waiting for first telemetry pulse.</div>
         </section>
 
-        <section class="panel memory-panel" aria-labelledby="memory-title">
+        <section class="panel monitoring-panel" aria-labelledby="monitoring-title">
           <div class="panel-header">
             <div>
               <p>System Cushion</p>
-              <h2 id="memory-title">Memory</h2>
+              <h2 id="monitoring-title">Monitoring</h2>
             </div>
             <span class="panel-accent" id="memory-pressure">--</span>
           </div>
-          <div class="gauge" aria-label="Memory usage">
-            <div class="gauge-track">
-              <div class="gauge-fill" id="memory-fill"></div>
+
+          <div class="gauge-stack">
+            <div class="gauge" aria-label="Memory usage">
+              <div class="gauge-row">
+                <span>Memory</span>
+                <strong id="memory-used">--</strong>
+              </div>
+              <div class="gauge-track">
+                <div class="gauge-fill" id="memory-fill"></div>
+              </div>
+              <div class="gauge-labels">
+                <span id="memory-free">Free --</span>
+                <span id="swap-used">Swap --</span>
+              </div>
             </div>
-            <div class="gauge-labels">
-              <span id="memory-used">Used --</span>
-              <span id="memory-free">Free --</span>
+            <div class="gauge kv-gauge" aria-label="KV cache usage">
+              <div class="gauge-row">
+                <span>KV Cache</span>
+                <strong id="kv-label">--</strong>
+              </div>
+              <div class="gauge-track">
+                <div class="gauge-fill kv-fill" id="kv-fill"></div>
+              </div>
+              <div class="gauge-labels">
+                <span id="kv-path">--</span>
+                <span id="process-rss">RSS --</span>
+              </div>
             </div>
           </div>
+
           <dl class="metric-list">
             <div>
               <dt>CPU</dt>
               <dd id="cpu-usage">--</dd>
+            </div>
+            <div>
+              <dt>GPU</dt>
+              <dd id="gpu-usage">--</dd>
+            </div>
+            <div>
+              <dt>CPU Temp</dt>
+              <dd id="cpu-temp">--</dd>
+            </div>
+            <div>
+              <dt>GPU Temp</dt>
+              <dd id="gpu-temp">--</dd>
             </div>
             <div>
               <dt>Process</dt>
@@ -119,34 +160,76 @@
               <dd id="uptime">--</dd>
             </div>
           </dl>
+
+          <div class="chart-grid">
+            <canvas id="tokens-chart" width="520" height="132" aria-label="Tokens per second chart"></canvas>
+            <canvas id="system-chart" width="520" height="132" aria-label="System utilization chart"></canvas>
+          </div>
         </section>
 
         <section class="panel config-panel" aria-labelledby="config-title">
           <div class="panel-header">
             <div>
               <p>Configuration Plane</p>
-              <h2 id="config-title">Runtime Config</h2>
+              <h2 id="config-title">Config</h2>
             </div>
-            <button class="icon-button" id="refresh-config" type="button" aria-label="Refresh config">
+            <button class="icon-button" id="refresh-config" type="button" title="Refresh config" aria-label="Refresh config">
               <span aria-hidden="true">&#8635;</span>
             </button>
           </div>
-          <pre class="json-viewer" id="config-json" tabindex="0">{}</pre>
+          <div class="config-layout">
+            <pre class="json-viewer" id="config-json" tabindex="0">{}</pre>
+            <div class="schema-column">
+              <div class="schema-toolbar">
+                <span class="panel-accent" id="schema-count">0 keys</span>
+              </div>
+              <div class="schema-list" id="schema-list"></div>
+              <div class="schema-editor-bar" id="schema-editor-bar" hidden>
+                <input type="text" id="config-edit-key" placeholder="key" spellcheck="false" />
+                <input type="text" id="config-edit-value" placeholder="value" spellcheck="false" />
+                <button id="config-save-btn" type="button">Save</button>
+              </div>
+            </div>
+          </div>
         </section>
 
-        <section class="panel schema-panel" aria-labelledby="schema-title">
+        <section class="panel benchmark-panel" aria-labelledby="benchmark-title">
           <div class="panel-header">
             <div>
-              <p>Dynamic Schema</p>
-              <h2 id="schema-title">Discovered Options</h2>
+              <p>One-Click Eval</p>
+              <h2 id="benchmark-title">Benchmarks</h2>
             </div>
-            <span class="panel-accent" id="schema-count">0 keys</span>
+            <span class="panel-accent" id="benchmark-summary">idle</span>
           </div>
-          <div class="schema-list" id="schema-list"></div>
-          <div class="schema-editor-bar" id="schema-editor-bar" style="display:none">
-            <input type="text" id="config-edit-key" placeholder="Key (e.g. primary_port)" spellcheck="false" />
-            <input type="text" id="config-edit-value" placeholder="Value" spellcheck="false" />
-            <button id="config-save-btn" type="button">Save</button>
+          <div class="control-row">
+            <select id="benchmark-suite" aria-label="Benchmark suite"></select>
+            <input id="benchmark-label" type="text" placeholder="compare label" spellcheck="false" />
+            <button id="run-benchmark" type="button">Run</button>
+          </div>
+          <div class="benchmark-results" id="benchmark-results"></div>
+        </section>
+
+        <section class="panel mcp-panel" aria-labelledby="mcp-title">
+          <div class="panel-header">
+            <div>
+              <p>Agentic Surface</p>
+              <h2 id="mcp-title">MCP</h2>
+            </div>
+            <span class="panel-accent" id="sse-state">SSE idle</span>
+          </div>
+          <div class="mcp-grid">
+            <div>
+              <h3>Tools</h3>
+              <div class="compact-list" id="mcp-tools"></div>
+            </div>
+            <div>
+              <h3>Resources</h3>
+              <div class="compact-list" id="mcp-resources"></div>
+            </div>
+          </div>
+          <div class="update-bar">
+            <button id="update-check" type="button">Check Release</button>
+            <span id="update-result">No release check yet.</span>
           </div>
         </section>
       </main>

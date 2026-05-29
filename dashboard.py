@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
+from benchmarks.runner import BenchmarkRunner
+from bridge.config_manager import DS4ConfigManager
 from bridge.engine_client import DS4EngineClient, EngineClientConfig
 from bridge.system_metrics import MacSystemMetrics
+from mcp.resources import DashboardResourceRegistry
+from mcp.server import MCPJsonRpcServer
+from mcp.tools import DashboardToolRegistry
+from updater.updater import DS4Updater
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -26,13 +35,19 @@ DS4_KV_CACHE = Path(os.environ.get("DS4_KV_CACHE", "/tmp/ds4-kv")).expanduser()
 
 DS4_PRIMARY_PORT = int(os.environ.get("DS4_PRIMARY_PORT", "8001"))
 DS4_TELEM_URL = os.environ.get("DS4_TELEM_URL", f"http://127.0.0.1:{DS4_PRIMARY_PORT}/telem")
+DS4_METRICS_URL = os.environ.get("DS4_METRICS_URL", f"http://127.0.0.1:{DS4_PRIMARY_PORT}/metrics")
+DS4_COMPLETION_URL = os.environ.get(
+    "DS4_COMPLETION_URL",
+    f"http://127.0.0.1:{DS4_PRIMARY_PORT}/v1/chat/completions",
+)
 DS4_CONTEXT_WINDOW = int(os.environ.get("DS4_CONTEXT_WINDOW", "131072"))
 DS4_KV_CACHE_BUDGET_MIB = int(os.environ.get("DS4_KV_CACHE_BUDGET_MIB", "51200"))
+DS4_GITHUB_REPO = os.environ.get("DS4_GITHUB_REPO", "antirez/ds4")
 
 
 app = FastAPI(
-    title="DS4 Inference Engine Dashboard",
-    description="Local Dwarfstar dashboard for DS4 engine telemetry and configuration.",
+    title="DS4 Dwarfstar Dashboard",
+    description="Local Dwarfstar dashboard for DS4 telemetry, config, benchmarks, updates, and MCP.",
     version="0.1.0",
 )
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR), check_dir=False), name="static")
@@ -42,92 +57,112 @@ engine_client = DS4EngineClient(
         host="127.0.0.1",
         port=DS4_PRIMARY_PORT,
         telem_url=DS4_TELEM_URL,
+        metrics_url=DS4_METRICS_URL,
+        completion_url=DS4_COMPLETION_URL,
         binary_path=DS4_BINARY,
     )
 )
+config_manager = DS4ConfigManager(
+    binary_path=DS4_BINARY,
+    telem_url=DS4_TELEM_URL,
+    kv_cache_path=DS4_KV_CACHE,
+    metal_dir=DS4_METAL_DIR,
+    defaults={
+        "binary": str(DS4_BINARY),
+        "primary_port": DS4_PRIMARY_PORT,
+        "telem_url": DS4_TELEM_URL,
+        "metrics_url": DS4_METRICS_URL,
+        "completion_url": DS4_COMPLETION_URL,
+        "model": str(DS4_MODEL),
+        "mtp": str(DS4_MTP),
+        "context_window": DS4_CONTEXT_WINDOW,
+        "kv_disk_cache": str(DS4_KV_CACHE),
+        "kv_cache_budget_mib": DS4_KV_CACHE_BUDGET_MIB,
+        "metal_shader_dir": str(DS4_METAL_DIR),
+        "poll_interval_ms": 2000,
+    },
+)
 system_metrics = MacSystemMetrics()
+benchmark_runner = BenchmarkRunner(engine_client)
+updater = DS4Updater(repo=DS4_GITHUB_REPO, binary_path=DS4_BINARY)
 
 
-def _path_info(path: Path) -> Dict[str, Any]:
-    return {
-        "path": str(path),
-        "exists": path.exists(),
-        "is_symlink": path.is_symlink(),
-        "resolved": str(path.resolve()) if path.exists() else None,
-    }
+class ConfigUpdate(BaseModel):
+    key: str
+    value: Any
 
 
-def _count_metal_shaders() -> int:
-    if not DS4_METAL_DIR.is_dir():
-        return 0
-    return len([path for path in DS4_METAL_DIR.iterdir() if path.is_file() and path.suffix == ".metal"])
+class BenchmarkRunRequest(BaseModel):
+    suite_id: str = "quick_smoke"
+    iterations: int = 1
+    compare_label: Optional[str] = None
+
+
+class UpdateRequest(BaseModel):
+    apply: bool = False
+    asset_url: Optional[str] = None
+    sha256: Optional[str] = None
 
 
 def get_dashboard_config() -> Dict[str, Any]:
-    return {
-        "engine": "ds4",
-        "binary": _path_info(DS4_BINARY),
-        "primary_port": DS4_PRIMARY_PORT,
-        "telem_url": DS4_TELEM_URL,
-        "model": _path_info(DS4_MODEL),
-        "mtp": _path_info(DS4_MTP),
-        "context_window": DS4_CONTEXT_WINDOW,
-        "kv_disk_cache": {
-            "path": str(DS4_KV_CACHE),
-            "budget_mib": DS4_KV_CACHE_BUDGET_MIB,
-            "exists": DS4_KV_CACHE.exists(),
-        },
-        "metal": {
-            "path": str(DS4_METAL_DIR),
-            "shader_count": _count_metal_shaders(),
-        },
-        "poll_interval_ms": 2000,
-    }
+    return config_manager.get_config()
 
 
 def get_config_schema() -> Dict[str, Dict[str, Any]]:
-    return {
-        "primary_port": {
-            "type": "int",
-            "default": DS4_PRIMARY_PORT,
-            "desc": "DS4 primary server and telemetry port.",
-        },
-        "telem_url": {
-            "type": "string",
-            "default": DS4_TELEM_URL,
-            "desc": "DS4 telemetry endpoint polled by the dashboard.",
-        },
-        "model": {
-            "type": "path",
-            "default": str(DS4_MODEL),
-            "desc": "Main GGUF model path or symlink.",
-        },
-        "mtp": {
-            "type": "path",
-            "default": str(DS4_MTP),
-            "desc": "MTP draft model GGUF path.",
-        },
-        "context_window": {
-            "type": "int",
-            "default": DS4_CONTEXT_WINDOW,
-            "desc": "Configured DS4 context window.",
-        },
-        "kv_disk_cache": {
-            "type": "path",
-            "default": str(DS4_KV_CACHE),
-            "desc": "KV disk cache directory.",
-        },
-        "kv_cache_budget_mib": {
-            "type": "int",
-            "default": DS4_KV_CACHE_BUDGET_MIB,
-            "desc": "KV disk cache budget in MiB.",
-        },
-        "metal_shader_dir": {
-            "type": "path",
-            "default": str(DS4_METAL_DIR),
-            "desc": "Directory containing Metal shader sources.",
-        },
+    return config_manager.get_schema()
+
+
+def get_status_payload() -> Dict[str, Any]:
+    status = engine_client.get_status()
+    config = config_manager.get_config()
+    kv_cache = config.get("kv_disk_cache", {})
+    system = system_metrics.get_metrics(
+        pid=status.get("pid"),
+        kv_cache_path=Path(str(kv_cache.get("path", DS4_KV_CACHE))).expanduser(),
+        kv_budget_bytes=kv_cache.get("budget_bytes"),
+    )
+
+    telemetry_kv = status.get("telemetry", {}).get("kv_cache", {})
+    disk_kv = system.get("kv_disk_cache") or {}
+    status["config"] = config
+    status["system"] = system
+    status["kv_cache"] = {
+        "path": kv_cache.get("path"),
+        "budget_mib": kv_cache.get("budget_mib"),
+        "budget_bytes": kv_cache.get("budget_bytes"),
+        "disk_used_bytes": disk_kv.get("used_bytes"),
+        "disk_fill_percent": disk_kv.get("fill_percent"),
+        **telemetry_kv,
     }
+    return status
+
+
+def get_metrics_payload() -> Dict[str, Any]:
+    status = get_status_payload()
+    return {
+        "checked_at": status.get("checked_at"),
+        "state": status.get("state"),
+        "running": status.get("running"),
+        "port": status.get("port"),
+        "telemetry": status.get("telemetry"),
+        "kv_cache": status.get("kv_cache"),
+        "system": status.get("system"),
+    }
+
+
+tool_registry = DashboardToolRegistry(
+    status_provider=get_status_payload,
+    metrics_provider=get_metrics_payload,
+    config_manager=config_manager,
+    benchmark_runner=benchmark_runner,
+    updater=updater,
+)
+resource_registry = DashboardResourceRegistry(
+    telemetry_provider=get_metrics_payload,
+    config_manager=config_manager,
+    benchmark_runner=benchmark_runner,
+)
+mcp_rpc_server = MCPJsonRpcServer(tools=tool_registry, resources=resource_registry)
 
 
 @app.get("/", include_in_schema=False)
@@ -140,43 +175,117 @@ async def index() -> Response:
 
 @app.get("/api/status")
 async def api_status() -> Dict[str, Any]:
-    status = engine_client.get_status()
-    status["config"] = get_dashboard_config()
-    status["system"] = system_metrics.get_metrics()
-    return status
+    return get_status_payload()
+
+
+@app.get("/api/metrics")
+async def api_metrics() -> Dict[str, Any]:
+    return get_metrics_payload()
 
 
 @app.get("/api/config")
 async def api_config() -> Dict[str, Any]:
-    return get_dashboard_config()
+    return config_manager.get_config()
 
 
 @app.get("/api/config-schema")
-async def api_config_schema() -> Dict[str, Dict[str, Any]]:
-    return get_config_schema()
+async def api_config_schema(refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+    return config_manager.get_schema(force_refresh=refresh)
 
-
-# ── Config Editor ────────────────────────────────────────────────────
-
-from pydantic import BaseModel
-
-class ConfigUpdate(BaseModel):
-    key: str
-    value: str
-
-_CONFIG_OVERRIDES: Dict[str, str] = {}
 
 @app.patch("/api/config")
 async def api_update_config(update: ConfigUpdate) -> Dict[str, Any]:
-    key = update.key.strip()
-    value = update.value.strip()
-    _CONFIG_OVERRIDES[key] = value
-    # Return the merged config so the frontend sees the new value immediately
-    return {"ok": True, "key": key, "value": value}
+    try:
+        updated = config_manager.set_override(update.key, update.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "updated": updated, "config": config_manager.get_config()}
+
+
+@app.delete("/api/config/{key}")
+async def api_clear_config(key: str) -> Dict[str, Any]:
+    removed = config_manager.clear_override(key)
+    return {"ok": True, "removed": removed, "config": config_manager.get_config()}
+
 
 @app.get("/api/config-overrides")
-async def api_config_overrides() -> Dict[str, str]:
-    return dict(_CONFIG_OVERRIDES)
+async def api_config_overrides() -> Dict[str, Any]:
+    return config_manager.get_overrides()
+
+
+@app.get("/api/benchmarks")
+async def api_benchmark_suites() -> Dict[str, Any]:
+    return {"suites": benchmark_runner.list_suites(), "last_results": benchmark_runner.get_last_results()}
+
+
+@app.post("/api/benchmarks/run")
+async def api_run_benchmark(request: BenchmarkRunRequest) -> Dict[str, Any]:
+    try:
+        result = benchmark_runner.run_suite(
+            request.suite_id,
+            iterations=request.iterations,
+            compare_label=request.compare_label,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return result
+
+
+@app.get("/api/benchmarks/results")
+async def api_benchmark_results() -> Dict[str, Any]:
+    return {"results": benchmark_runner.get_last_results()}
+
+
+@app.get("/api/update/check")
+async def api_update_check() -> Dict[str, Any]:
+    return updater.check_latest_release()
+
+
+@app.post("/api/update")
+async def api_update(request: UpdateRequest) -> Dict[str, Any]:
+    return updater.update(apply=request.apply, asset_url=request.asset_url, sha256=request.sha256)
+
+
+@app.get("/api/mcp/manifest")
+async def api_mcp_manifest() -> Dict[str, Any]:
+    return {"tools": tool_registry.list_tools(), "resources": resource_registry.list_resources()}
+
+
+@app.post("/api/mcp/tools/{tool_name}")
+async def api_mcp_tool(tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    try:
+        return tool_registry.call_tool(tool_name, arguments or {})
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/mcp/resources")
+async def api_mcp_resources() -> Dict[str, Any]:
+    return {"resources": resource_registry.list_resources()}
+
+
+@app.get("/api/mcp/resources/read")
+async def api_mcp_resource_read(uri: str) -> Dict[str, Any]:
+    try:
+        return resource_registry.read_resource(uri)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/mcp")
+async def api_mcp_jsonrpc(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return await mcp_rpc_server.handle(payload)
+
+
+@app.get("/mcp/sse")
+async def api_mcp_sse() -> StreamingResponse:
+    async def events():
+        while True:
+            payload = json.dumps(get_metrics_payload(), separators=(",", ":"))
+            yield f"event: telemetry\ndata: {payload}\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 if __name__ == "__main__":
