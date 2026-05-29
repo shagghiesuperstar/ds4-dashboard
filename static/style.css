@@ -456,6 +456,32 @@ h2 {
   white-space: nowrap;
 }
 
+.schema-values {
+  display: flex;
+  gap: 16px;
+  margin: 8px 0 0;
+}
+
+.schema-current {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--green);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schema-default {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--dim);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .schema-item.editable {
   cursor: pointer;
   transition: border-color 180ms, box-shadow 180ms;
@@ -599,6 +625,30 @@ h2 {
   .gauge-labels {
     flex-direction: column;
   }
+}
+
+/* Benchmark task breakdown */
+.benchmark-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 255, 65, 0.1);
+  border-radius: 4px;
+  margin-top: 4px;
+  background: #0d0d0d;
+  font-size: 0.78rem;
+}
+.benchmark-task-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.benchmark-task .benchmark-stat {
+  flex: 0 0 auto;
+  color: var(--dim);
 }
 
 @media (prefers-reduced-motion: reduce) {

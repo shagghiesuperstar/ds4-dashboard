@@ -117,8 +117,9 @@ function renderStatus(status) {
     setMemoryColor(fill, pct);
   }
   setText("memory-used", memory.used_bytes ? formatBytes(memory.used_bytes) : formatPercent(usedPercent));
-  setText("memory-free", memory.free_bytes ? formatBytes(memory.free_bytes) : "--");
-  setText("swap-used", memory.swap_bytes ? formatBytes(memory.swap_bytes) : "--");
+  setText("memory-total", memory.total_bytes ? "Total " + formatBytes(memory.total_bytes) : "--");
+  setText("memory-free", memory.free_bytes ? "Free " + formatBytes(memory.free_bytes) : "--");
+  setText("swap-used", memory.swap?.used_bytes ? formatBytes(memory.swap.used_bytes) + " swap" : "--");
   setText("memory-pressure", memory.pressure || "--");
 
   // KV cache gauge
@@ -128,6 +129,8 @@ function renderStatus(status) {
     kvFill.style.width = `${Math.min(100, Math.max(0, Number(kvPct)))}%`;
   }
   setText("kv-label", kv.disk_used_bytes ? formatBytes(kv.disk_used_bytes) : formatMiB(kv.budget_mib));
+  const kvTotal = kv.budget_bytes || kv.total_bytes;
+  setText("kv-total", kvTotal ? "Total " + formatBytes(kvTotal) : "--");
   setText("kv-path", kv.path || "--");
   setText("process-rss", memory.ds4_rss_bytes ? formatBytes(memory.ds4_rss_bytes) : "--");
 
@@ -312,15 +315,29 @@ function renderSchema(schema) {
     const desc = document.createElement("p");
     desc.textContent = meta.desc || "No description available.";
 
-    const fallback = document.createElement("code");
-    fallback.textContent = String(meta.default ?? "");
+    // Show current value and default value side by side
+    const currentVal = meta.current !== undefined ? meta.current : meta.default;
+    const defaultValue = meta.default;
 
-    item.append(title, desc, fallback);
+    const valuesDiv = document.createElement("div");
+    valuesDiv.className = "schema-values";
+
+    const currentDisplay = document.createElement("code");
+    currentDisplay.className = "schema-current";
+    currentDisplay.textContent = `current: ${String(currentVal ?? "")}`;
+
+    const defaultDisplay = document.createElement("code");
+    defaultDisplay.className = "schema-default";
+    defaultDisplay.textContent = `default: ${String(defaultValue ?? "")}`;
+
+    valuesDiv.append(currentDisplay, defaultDisplay);
+
+    item.append(title, desc, valuesDiv);
     item.tabIndex = 0;
     item.classList.add("editable");
     item.addEventListener("click", () => {
       $("config-edit-key").value = key;
-      $("config-edit-value").value = String(meta.default ?? "");
+      $("config-edit-value").value = String(currentVal ?? "");
       $("schema-editor-bar").style.display = "flex";
       $("config-edit-value").focus();
     });
@@ -378,6 +395,7 @@ function renderBenchmarkResults(results) {
   if (!container) return;
   let html = "";
   if (Array.isArray(results)) {
+    // Array of run results from last_results
     for (const r of results) {
       html += `<div class="benchmark-row">
         <strong>${r.label || r.suite_id || "result"}</strong>
@@ -387,13 +405,45 @@ function renderBenchmarkResults(results) {
         <span class="benchmark-stat">${r.p50_ms !== undefined ? r.p50_ms.toFixed(0) + "ms" : ""}</span>
       </div>`;
     }
+  } else if (results.run_id) {
+    // Single run result from /api/benchmarks/run
+    const r = results;
+    const p50 = r.latency_p50_seconds ? (r.latency_p50_seconds * 1000).toFixed(0) + "ms" : "";
+    const p95 = r.latency_p95_seconds ? (r.latency_p95_seconds * 1000).toFixed(0) + "ms" : "";
+    html += `<div class="benchmark-row">
+      <strong>${r.suite_name || r.suite_id}</strong>
+      <span class="benchmark-stat">${r.pass_count}/${r.task_count} passed</span>
+      <span class="benchmark-stat">${r.pass_rate !== undefined ? formatPercent(r.pass_rate) : ""}</span>
+      <span class="benchmark-stat">${r.tok_s_avg !== undefined && r.tok_s_avg !== null ? formatNumber(r.tok_s_avg, 2) + " tok/s" : ""}</span>
+      <span class="benchmark-stat">${p95 ? `p95 ${p95}` : ""}</span>
+      <span class="benchmark-stat">${p50 ? `p50 ${p50}` : ""}</span>
+    </div>`;
+    // Per-task breakdown
+    if (r.tasks && Array.isArray(r.tasks)) {
+      for (const t of r.tasks) {
+        const status = t.passed ? "✅" : t.error ? "❌" : "⚠️";
+        html += `<div class="benchmark-task">
+          <span>${status}</span>
+          <span class="benchmark-task-name">${t.title}</span>
+          <span class="benchmark-stat">${t.score !== undefined ? (t.score * 100).toFixed(0) + "%" : ""}</span>
+          <span class="benchmark-stat">${t.tok_s !== undefined && t.tok_s !== null ? formatNumber(t.tok_s, 2) + " tok/s" : ""}</span>
+          <span class="benchmark-stat">${t.error ? t.error : ""}</span>
+        </div>`;
+      }
+    }
   } else if (results.suites) {
-    for (const [id, r] of Object.entries(results.suites)) {
+    // Suites list from /api/benchmarks — show suite names
+    for (const suite of results.suites) {
       html += `<div class="benchmark-row">
-        <strong>${id}</strong>
-        <span class="benchmark-stat">${r.status || "done"}</span>
-        <span class="benchmark-stat">${r.tok_s !== undefined ? formatNumber(r.tok_s, 2) + " tok/s" : ""}</span>
+        <strong>${suite.name || suite.id}</strong>
+        <span class="benchmark-stat">${suite.task_count} tasks</span>
+        <span class="benchmark-stat">${suite.description ? suite.description.slice(0, 60) : ""}</span>
       </div>`;
+    }
+    // Also show last_results inline
+    if (results.last_results && Array.isArray(results.last_results)) {
+      renderBenchmarkResults(results.last_results);
+      return;
     }
   } else {
     html = `<div class="benchmark-row">${JSON.stringify(results, null, 2)}</div>`;
