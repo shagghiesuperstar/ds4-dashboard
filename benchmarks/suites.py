@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .agent_suite import AGENTIC_SMOKE_SUITE
+from .agent_suite import AGENTIC_FULL_SUITE, AGENTIC_SMOKE_SUITE
 
 
 BENCHMARK_SUITES: Dict[str, Dict[str, Any]] = {
@@ -80,6 +80,7 @@ BENCHMARK_SUITES: Dict[str, Dict[str, Any]] = {
         ],
     },
     "agentic_smoke": AGENTIC_SMOKE_SUITE,
+    "agentic_full": AGENTIC_FULL_SUITE,
     "agentic_endurance": {
         "id": "agentic_endurance",
         "name": "Agentic Endurance",

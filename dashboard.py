@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -587,22 +587,31 @@ async def api_benchmark_suites() -> Dict[str, Any]:
 
 
 @app.post("/api/benchmarks/run")
-async def api_run_benchmark(request: BenchmarkRunRequest) -> Dict[str, Any]:
-    suite_id = request.suite or request.suite_id
+async def api_run_benchmark(
+    request: Optional[BenchmarkRunRequest] = Body(default=None),
+    suite: Optional[str] = Query(default=None),
+    suite_id: Optional[str] = Query(default=None),
+    iterations: Optional[int] = Query(default=None),
+    compare_label: Optional[str] = Query(default=None),
+) -> Dict[str, Any]:
+    request = request or BenchmarkRunRequest()
+    selected_suite = suite or suite_id or request.suite or request.suite_id
+    selected_iterations = iterations if iterations is not None else request.iterations
+    selected_compare_label = compare_label if compare_label is not None else request.compare_label
     try:
         if request.config_overrides:
             original_overrides = config_manager.get_overrides()
             profile = normalize_benchmark_config(
-                {"label": request.compare_label or "Benchmark config", "overrides": request.config_overrides},
+                {"label": selected_compare_label or "Benchmark config", "overrides": request.config_overrides},
                 "Benchmark config",
             )
             try:
                 result = await asyncio.to_thread(
                     run_benchmark_with_profile,
-                    suite_id=suite_id,
-                    iterations=request.iterations,
+                    suite_id=selected_suite,
+                    iterations=selected_iterations,
                     profile=profile,
-                    compare_label=request.compare_label,
+                    compare_label=selected_compare_label,
                     side="single",
                 )
             finally:
@@ -613,9 +622,9 @@ async def api_run_benchmark(request: BenchmarkRunRequest) -> Dict[str, Any]:
 
         result = await asyncio.to_thread(
             benchmark_runner.run_suite,
-            suite_id,
-            iterations=request.iterations,
-            compare_label=request.compare_label,
+            selected_suite,
+            iterations=selected_iterations,
+            compare_label=selected_compare_label,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

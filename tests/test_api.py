@@ -33,6 +33,22 @@ class DashboardApiTests(unittest.TestCase):
         self.assertEqual(schema["context_window"]["type"], "int")
         self.assertEqual(schema["model"]["type"], "path")
 
+    def test_agentic_full_suite_is_registered(self):
+        response = self.client.get("/api/benchmarks")
+        self.assertEqual(response.status_code, 200)
+        suite_ids = {suite["id"] for suite in response.json()["suites"]}
+        self.assertIn("agentic_full", suite_ids)
+
+    def test_benchmark_run_accepts_suite_query_param(self):
+        expected = {"run_id": "test", "suite_id": "agentic_full", "tasks": []}
+        with patch.object(dashboard.benchmark_runner, "run_suite", return_value=expected) as run_suite:
+            response = self.client.post("/api/benchmarks/run?suite=agentic_full")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+        run_suite.assert_called_once()
+        self.assertEqual(run_suite.call_args.args[0], "agentic_full")
+
     def test_status_includes_engine_and_system_metrics(self):
         response = self.client.get("/api/status")
         self.assertEqual(response.status_code, 200)
