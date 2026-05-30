@@ -270,7 +270,7 @@
                 <input type="text" id="config-edit-key" placeholder="key" spellcheck="false" />
                 <input type="text" id="config-edit-value" placeholder="value" spellcheck="false" />
                 <button id="config-save-btn" type="button">Save</button>
-                <button id="config-apply-btn" type="button">Apply & Restart</button>
+                <button id="config-apply-btn" type="button">Apply &amp; Restart</button>
               </div>
               <div class="restart-bar">
                 <button id="restart-ds4-btn" type="button">Restart DS4</button>
@@ -301,7 +301,7 @@
             <div class="model-selector">
               <div class="model-selector-controls">
                 <select id="model-select" aria-label="Available GGUF models"></select>
-                <button id="switch-model-btn" type="button">Switch & Restart</button>
+                <button id="switch-model-btn" type="button">Switch &amp; Restart</button>
               </div>
               <div class="model-option-details" id="model-option-details" aria-live="polite"></div>
             </div>
@@ -376,6 +376,24 @@
             <button id="update-check" type="button">Check Release</button>
             <button id="update-rollback" type="button">Rollback</button>
             <span id="update-result">No release check yet.</span>
+          </div>
+        </section>
+
+        <section class="panel chat-panel" aria-labelledby="chat-title">
+          <div class="panel-header">
+            <div>
+              <p>Model Chat</p>
+              <h2 id="chat-title">DS4 Chat</h2>
+            </div>
+          </div>
+          <div class="chat-container">
+            <div class="chat-messages" id="chat-messages" aria-live="polite">
+              <div class="chat-welcome">Chat with the running DS4 model. Messages use the model's current context.</div>
+            </div>
+            <div class="chat-input-row">
+              <textarea id="chat-input" rows="2" placeholder="Message DS4..." spellcheck="false"></textarea>
+              <button id="chat-send-btn" type="button">Send</button>
+            </div>
           </div>
         </section>
       </main>

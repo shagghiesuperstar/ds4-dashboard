@@ -215,7 +215,7 @@ function renderStatus(status) {
   if (hasValue(kvUsed)) {
     setText("kv-label", `${formatBytes(kvUsed)} / ${formatBytes(kvBudget)}`);
   } else if (kvBudget && engineRunning) {
-    setText("kv-label", `budget: ${formatBytes(kvBudget)} (no cache data yet)`);
+    setText("kv-label", `NO CACHE — budget: ${formatBytes(kvBudget)}`);
   } else if (engineRunning) {
     setText("kv-label", "Diskless mode — no KV cache");
   } else if (kvBudget) {
@@ -1446,6 +1446,66 @@ async function refreshStatus() {
   }
 }
 
+// ── Chat ────────────────────────────────────────────────────
+
+function escapeChatText(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function appendChatMessage(role, text) {
+  const messages = $("chat-messages");
+  if (!messages) return;
+  const el = document.createElement("div");
+  el.className = `chat-msg ${role}`;
+  el.innerHTML = `<span class="msg-label">${role === "user" ? "You" : "DS4"}</span><div class="msg-content">${escapeChatText(text)}</div>`;
+  messages.append(el);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function chatResponseText(data) {
+  return data?.choices?.[0]?.message?.content
+    ?? data?.choices?.[0]?.text
+    ?? data?.message?.content
+    ?? data?.content
+    ?? data?.response
+    ?? "";
+}
+
+async function sendChatMessage() {
+  const input = $("chat-input");
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  const sendButton = $("chat-send-btn");
+  appendChatMessage("user", text);
+  input.value = "";
+  if (sendButton) sendButton.disabled = true;
+
+  try {
+    const response = await fetch("/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: state.lastStatus?.model || "deepseek-v4-flash",
+        messages: [{ role: "user", content: text }],
+        stream: false,
+      }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    appendChatMessage("assistant", chatResponseText(data) || "(empty response)");
+  } catch (error) {
+    appendChatMessage("assistant", `Error: ${error.message}`);
+  } finally {
+    if (sendButton) sendButton.disabled = false;
+    input.focus();
+  }
+}
+
 // ── Boot ────────────────────────────────────────────────────
 
 async function boot() {
@@ -1481,6 +1541,13 @@ async function boot() {
     switchModel().catch((error) => setText("status-message", error.message));
   });
   $("model-select")?.addEventListener("change", renderModelOptionDetails);
+  $("chat-send-btn").addEventListener("click", sendChatMessage);
+  $("chat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
 
   // Initial loads
   await Promise.all([

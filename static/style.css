@@ -387,6 +387,7 @@ textarea {
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+  align-items: stretch;
   gap: 18px;
   padding-top: 20px;
 }
@@ -487,8 +488,16 @@ h2 {
 }
 
 .panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-width: 0;
   padding: 14px;
+}
+
+.panel > :last-child {
+  flex-grow: 1;
+  min-height: 0;
 }
 
 .memory-panel,
@@ -496,6 +505,17 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* Auto-resize panels to fill available height */
+.monitoring-panel,
+.model-panel {
+  height: 100%;
+}
+
+.monitoring-panel .gauge-stack,
+.monitoring-panel .metric-list {
+  flex: 1 1 auto;
 }
 
 .panel-header {
@@ -926,6 +946,7 @@ h2 {
 /* ── Model Panel ─────────────────────────── */
 
 .model-panel .model-layout {
+  flex: 1 1 auto;
   padding: 8px 0;
 }
 .model-panel .model-current {
@@ -1061,6 +1082,164 @@ h2 {
   color: var(--dim);
   font-size: 0.76rem;
   overflow-wrap: anywhere;
+}
+
+/* ── Chat Panel ─────────────────────────── */
+
+.chat-panel {
+  min-height: 360px;
+}
+
+.chat-panel .chat-container {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.chat-container {
+  min-height: 0;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #070707;
+  scrollbar-color: rgba(0, 255, 65, 0.42) rgba(0, 255, 65, 0.08);
+  scrollbar-width: thin;
+}
+
+.chat-panel .chat-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 100px;
+  max-height: 400px;
+}
+
+.chat-messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+  background: rgba(0, 255, 65, 0.08);
+  border-radius: 999px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(0, 255, 65, 0.42);
+}
+
+.chat-messages .chat-msg {
+  max-width: min(88%, 720px);
+  padding: 9px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(0, 255, 65, 0.035);
+  overflow-wrap: anywhere;
+}
+
+.chat-messages .chat-msg.user {
+  align-self: flex-end;
+  border-color: rgba(0, 212, 255, 0.32);
+  background: rgba(0, 212, 255, 0.075);
+}
+
+.chat-messages .chat-msg.assistant {
+  align-self: flex-start;
+  border-color: rgba(0, 255, 65, 0.28);
+  background: rgba(0, 255, 65, 0.055);
+}
+
+.chat-messages .chat-msg.user .msg-label {
+  color: var(--cyan);
+}
+
+.chat-messages .chat-msg.assistant .msg-label {
+  color: var(--green);
+}
+
+.msg-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.msg-content {
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.chat-welcome {
+  padding: 10px 11px;
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 212, 255, 0.035);
+  color: var(--dim);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.chat-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+#chat-input {
+  min-width: 0;
+  min-height: 58px;
+  max-height: 160px;
+  padding: 9px 10px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0a0a0a;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+#chat-input:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.22);
+  outline: none;
+}
+
+#chat-send-btn {
+  min-width: 84px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  background: rgba(0, 255, 65, 0.1);
+  color: var(--green);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+
+#chat-send-btn:hover,
+#chat-send-btn:focus-visible {
+  background: rgba(0, 255, 65, 0.18);
+  box-shadow: 0 0 14px rgba(0, 255, 65, 0.26);
+  outline: none;
+}
+
+#chat-send-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 @keyframes page-starfield-drift {
