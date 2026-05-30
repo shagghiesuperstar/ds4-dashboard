@@ -718,7 +718,7 @@ if __name__ == "__main__":
     import uvicorn
 
     parser = argparse.ArgumentParser(description="Run the DS4 Dwarfstar Dashboard.")
-    parser.add_argument("--host", default=os.environ.get("DASHBOARD_HOST", "127.0.0.1"))
+    parser.add_argument("--host", default=os.environ.get("DASHBOARD_HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("DASHBOARD_PORT", "8765")))
     parser.add_argument("--reload", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--mcp-stdio", action="store_true", help="Run the MCP JSON-RPC server over stdio.")
