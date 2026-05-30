@@ -10,6 +10,7 @@ const state = {
   lastStatus: null,
   benchmarkSuites: [],
   models: [],
+  modelDescriptions: {},
   compareProfiles: [],
   compareRunning: false,
   tokensHistory: [],
@@ -71,16 +72,11 @@ function setText(id, value) {
 function setStateChip(status) {
   const chip = $("status-chip");
   const stateLabel = $("state-label");
-  const heroStatus = $("hero-status");
   const rawState = status.state || (status.running ? "running" : "stopped");
   const labelMap = { running: "RUNNING", stopped: "OFFLINE", error: "ERROR", unknown: "UNKNOWN" };
   const displayLabel = labelMap[rawState] || rawState.toUpperCase();
   if (chip) chip.dataset.state = rawState;
   if (stateLabel) stateLabel.textContent = displayLabel;
-  if (heroStatus) {
-    heroStatus.dataset.state = rawState;
-    heroStatus.textContent = displayLabel;
-  }
 }
 
 // ── Memory Gauge Color ─────────────────────────────────────
@@ -111,9 +107,10 @@ function renderStatus(status) {
   const temp = system.temperature || {};
 
   // Core metrics
-  const tokens = telemetry.tok_s ?? telemetry.tokens_per_second ?? status.tok_s;
+  const tokens = telemetry.tok_s ?? telemetry.tokens_per_second ?? status.tok_s ?? status.model_averages?.tok_s?.avg;
+  const prefill = telemetry.prefill_tok_s ?? telemetry.prefill_s ?? telemetry.prefill_tokens_per_second ?? status.model_averages?.prefill_tok_s?.avg;
   setText("tokens-sec", tokens === undefined || tokens === null ? "--" : `${formatNumber(tokens, 2)} tok/s`);
-  setText("prefill-sec", telemetry.prefill_s === undefined || telemetry.prefill_s === null ? "--" : `${formatNumber(telemetry.prefill_s, 2)} tok/s`);
+  setText("prefill-sec", prefill === undefined || prefill === null ? "--" : `${formatNumber(prefill, 2)} tok/s`);
   setText("context-window", config.context_window ? config.context_window.toLocaleString() : "--");
   setText("kv-cache", kv.used_bytes ? formatBytes(kv.used_bytes) : kv.budget_mib ? `budget ${formatMiB(kv.budget_mib)}` : "--");
   setText("shader-count", String(config.metal?.shader_count ?? "--"));
@@ -1061,22 +1058,90 @@ async function refreshMCP() {
 
 // ── Model List & Switch ───────────────────────────────────
 
+function truncateDescription(description, maxLength = 120) {
+  const value = String(description || "").replace(/\s+/g, " ").trim();
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1).replace(/\s+\S*$/, "")}...`;
+}
+
+function modelDescriptionFor(model) {
+  return state.modelDescriptions?.[model.path] || state.modelDescriptions?.[model.filename] || model.description || "";
+}
+
+function renderModelOptionDetails() {
+  const container = $("model-option-details");
+  const select = $("model-select");
+  if (!container || !select) return;
+
+  container.replaceChildren();
+  if (!state.models.length) {
+    const empty = document.createElement("div");
+    empty.className = "model-option-detail";
+    empty.dataset.selected = "false";
+    const label = document.createElement("strong");
+    label.textContent = "No GGUF models found";
+    const desc = document.createElement("span");
+    desc.textContent = "Check the configured model search paths.";
+    empty.append(label, desc);
+    container.append(empty);
+    return;
+  }
+
+  for (const model of state.models) {
+    const item = document.createElement("div");
+    item.className = "model-option-detail";
+    item.dataset.selected = String(model.path === select.value);
+    item.tabIndex = 0;
+    item.setAttribute("role", "button");
+
+    const label = document.createElement("strong");
+    label.textContent = `${model.filename} (${model.size_gb} GB)`;
+    const desc = document.createElement("span");
+    desc.textContent = modelDescriptionFor(model) || "No Hugging Face description found.";
+    item.append(label, desc);
+
+    const choose = () => {
+      select.value = model.path;
+      renderModelOptionDetails();
+    };
+    item.addEventListener("click", choose);
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        choose();
+      }
+    });
+    container.append(item);
+  }
+}
+
 async function refreshModelList() {
   try {
-    const data = await fetchJson("/api/models");
+    const [data, descriptions] = await Promise.all([
+      fetchJson("/api/models"),
+      fetchJson("/api/model-descriptions").catch(() => ({})),
+    ]);
     const select = $("model-select");
     if (!select) return;
     state.models = data.models || [];
+    state.modelDescriptions = descriptions || {};
     select.replaceChildren();
     for (const m of state.models) {
       const opt = document.createElement("option");
       opt.value = m.path;
-      opt.textContent = `${m.filename} (${m.size_gb} GB)`;
+      const description = modelDescriptionFor(m);
+      opt.textContent = description
+        ? `${m.filename} (${m.size_gb} GB) - ${truncateDescription(description, 96)}`
+        : `${m.filename} (${m.size_gb} GB)`;
+      if (description) opt.title = description;
       select.append(opt);
     }
     // Show current model in placeholder
     const currentPath = data.current_model || "";
     const currentName = currentPath.split("/").pop() || "--";
+    if (currentPath && state.models.some((model) => model.path === currentPath)) {
+      select.value = currentPath;
+    }
     setText("model-summary", currentName);
     // Show per-model averages for all known models
     if (data.averages) {
@@ -1087,6 +1152,7 @@ async function refreshModelList() {
         }
       }
     }
+    renderModelOptionDetails();
     buildCompareProfiles();
   } catch (error) {
     console.warn("Model list refresh error:", error.message);
@@ -1184,6 +1250,7 @@ async function boot() {
   $("switch-model-btn")?.addEventListener("click", () => {
     switchModel().catch((error) => setText("status-message", error.message));
   });
+  $("model-select")?.addEventListener("change", renderModelOptionDetails);
 
   // Initial loads
   await Promise.all([

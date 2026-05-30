@@ -366,41 +366,6 @@ textarea {
   text-transform: uppercase;
 }
 
-.hero-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 120px;
-  height: 38px;
-  padding: 0 16px;
-  border: 2px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel-2);
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  transition: border-color 180ms, box-shadow 180ms;
-}
-
-.hero-status[data-state="running"] {
-  color: var(--green);
-  border-color: rgba(0, 255, 65, 0.55);
-  box-shadow: 0 0 30px rgba(0, 255, 65, 0.35);
-  animation: status-pulse-running 2s ease-in-out infinite;
-}
-
-.hero-status[data-state="stopped"],
-.hero-status[data-state="error"] {
-  color: var(--red);
-  border-color: rgba(255, 0, 59, 0.42);
-}
-
-.hero-status[data-state="unknown"] {
-  color: var(--amber);
-  border-color: rgba(255, 149, 0, 0.42);
-}
-
 h1,
 h2 {
   margin: 0;
@@ -811,6 +776,12 @@ h2 {
 }
 .model-panel .model-selector {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+.model-panel .model-selector-controls {
+  display: flex;
   gap: 6px;
   align-items: center;
 }
@@ -833,6 +804,34 @@ h2 {
   white-space: nowrap;
 }
 .model-panel .model-selector button:hover { background: #222; }
+.model-panel .model-option-details {
+  display: grid;
+  gap: 4px;
+  max-height: 168px;
+  overflow: auto;
+}
+.model-panel .model-option-detail {
+  padding: 7px 0;
+  border-top: 1px solid rgba(0, 255, 65, 0.12);
+  cursor: pointer;
+}
+.model-panel .model-option-detail[data-selected="true"] {
+  color: var(--green);
+}
+.model-panel .model-option-detail strong {
+  display: block;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1.25;
+  word-break: break-word;
+}
+.model-panel .model-option-detail span {
+  display: block;
+  margin-top: 3px;
+  color: var(--dim);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
 
 /* ── Update Panel ─────────────────────────── */
 

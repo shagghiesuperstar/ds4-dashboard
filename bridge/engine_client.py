@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Callable, Dict, Iterable, Optional
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,10 @@ class DS4EngineClient:
         self.metrics_url = config.metrics_url or self._derive_metrics_url(config.telem_url)
         self.completion_url = config.completion_url or f"http://{config.host}:{config.port}/v1/chat/completions"
         self._telemetry_supported: bool | None = None  # None = untested, True/False = cached
+        self._model_averages_provider: Optional[Callable[[], Dict[str, Any]]] = None
+
+    def set_model_averages_provider(self, provider: Optional[Callable[[], Dict[str, Any]]]) -> None:
+        self._model_averages_provider = provider
 
     def get_status(self) -> Dict[str, Any]:
         checked_at = time.time()
@@ -313,8 +317,8 @@ class DS4EngineClient:
         kv_cache = self._normalize_kv_cache(telemetry)
 
         normalized = {
-            "tok_s": tokens,
-            "prefill_tok_s": prefill_tps,
+            "tok_s": tokens if tokens is not None else self._model_average_number("tok_s"),
+            "prefill_tok_s": prefill_tps if prefill_tps is not None else self._model_average_number("prefill_tok_s"),
             "prefill_latency_ms": prefill_ms,
             "uptime_seconds": uptime,
             "kv_cache": kv_cache,
@@ -357,6 +361,37 @@ class DS4EngineClient:
                     return float(value)
                 except ValueError:
                     continue
+        return None
+
+    def _model_average_number(self, metric: str) -> Optional[float]:
+        if self._model_averages_provider is None:
+            return None
+        try:
+            averages = self._model_averages_provider()
+        except Exception:
+            return None
+        if not isinstance(averages, dict):
+            return None
+
+        metric_stats = averages.get(metric)
+        if isinstance(metric_stats, dict):
+            for key in ("avg", "last", "value"):
+                value = metric_stats.get(key)
+                number = self._coerce_number(value)
+                if number is not None:
+                    return number
+        return self._coerce_number(metric_stats)
+
+    def _coerce_number(self, value: Any) -> Optional[float]:
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return None
         return None
 
     def _extract_generation_text(self, raw: Dict[str, Any], style: str) -> str:

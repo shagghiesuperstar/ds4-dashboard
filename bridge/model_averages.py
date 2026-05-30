@@ -65,6 +65,7 @@ class ModelRunningAverages:
 
         return {
             "model": model,
+            "count": len(points),
             "total_calls": len(points),
             "window_size": len(recent),
             "tok_s": _agg(tok_s_values),

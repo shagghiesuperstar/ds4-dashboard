@@ -494,7 +494,7 @@ Open `http://127.0.0.1:8765` — the dashboard assumes DS4 is running on `127.0.
 | `DS4_MODEL` | `~/ds4/ds4flash.gguf` | Path to the active model GGUF (or symlink) |
 | `DS4_MTP` | `~/ds4/gguf/DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf` | MTP speculative model path |
 | `DS4_METAL_DIR` | `~/ds4/metal` | Directory containing Metal shader `.metal` files |
-| `DS4_KV_CACHE` | `/tmp/ds4-kv` | Disk KV cache directory |
+| `DS4_KV_CACHE` | `/Volumes/OWC_MODELS_TB5/DS4/cache` | Disk KV cache directory |
 | `DS4_PRIMARY_PORT` | `8001` | DS4 engine port |
 | `DS4_TELEM_URL` | `http://127.0.0.1:8001/telem` | DS4 telemetry endpoint |
 | `DS4_METRICS_URL` | `http://127.0.0.1:8001/metrics` | DS4 metrics endpoint |
