@@ -18,7 +18,7 @@ from bridge.model_averages import ModelRunningAverages
 from bridge.model_discovery import discover_models
 from bridge.system_metrics import MacSystemMetrics
 from mcp.resources import DashboardResourceRegistry
-from mcp.server import MCPJsonRpcServer
+from mcp.server import MCPJsonRpcServer, run_stdio
 from mcp.tools import DashboardToolRegistry
 from updater.updater import DS4Updater
 
@@ -403,6 +403,7 @@ def build_benchmark_comparison(request: BenchmarkCompareRequest) -> Dict[str, An
 tool_registry = DashboardToolRegistry(
     status_provider=get_status_payload,
     metrics_provider=get_metrics_payload,
+    schema_provider=get_config_schema,
     config_manager=config_manager,
     benchmark_runner=benchmark_runner,
     updater=updater,
@@ -667,6 +668,11 @@ if __name__ == "__main__":
     parser.add_argument("--host", default=os.environ.get("DASHBOARD_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("DASHBOARD_PORT", "8765")))
     parser.add_argument("--reload", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--mcp-stdio", action="store_true", help="Run the MCP JSON-RPC server over stdio.")
     args = parser.parse_args()
+
+    if args.mcp_stdio:
+        asyncio.run(run_stdio(mcp_rpc_server))
+        raise SystemExit(0)
 
     uvicorn.run("dashboard:app", host=args.host, port=args.port, reload=args.reload)

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dwarfstar.ds4-dashboard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/m4mbp/ds4-dashboard/.venv/bin/python</string>
+        <string>-m</string>
+        <string>uvicorn</string>
+        <string>dashboard:app</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8765</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/m4mbp/ds4-dashboard</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>DS4_HOME</key>
+        <string>/Users/m4mbp/ds4</string>
+        <key>DS4_PRIMARY_PORT</key>
+        <string>8001</string>
+        <key>DS4_TELEM_URL</key>
+        <string>http://127.0.0.1:8001/telem</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/ds4-dashboard-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ds4-dashboard-stderr.log</string>
+</dict>
+</plist>

@@ -1065,10 +1065,17 @@ h2 {
   white-space: nowrap;
 }
 
-.control-row button:hover,
-.control-row button:focus-visible,
-.compare-controls button:hover,
-.compare-controls button:focus-visible {
+.control-row button:disabled,
+.compare-controls button:disabled {
+  color: var(--dim);
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.control-row button:not(:disabled):hover,
+.control-row button:not(:disabled):focus-visible,
+.compare-controls button:not(:disabled):hover,
+.compare-controls button:not(:disabled):focus-visible {
   border-color: var(--green);
   box-shadow: 0 0 12px rgba(0, 255, 65, 0.24);
   outline: none;
@@ -1105,6 +1112,62 @@ h2 {
 .compare-controls label span {
   color: var(--dim);
   font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.compare-profile-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.compare-profile-card {
+  min-width: 0;
+  min-height: 82px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: rgba(10, 10, 10, 0.72);
+}
+
+.compare-profile-card.a {
+  border-color: rgba(0, 255, 65, 0.24);
+}
+
+.compare-profile-card.b {
+  border-color: rgba(0, 212, 255, 0.26);
+}
+
+.compare-profile-card span,
+.compare-summary-card span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--dim);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.compare-profile-card strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.compare-profile-card p {
+  margin: 5px 0 0;
+  color: var(--dim);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.compare-run-status {
+  min-height: 16px;
+  margin-top: 8px;
+  color: var(--dim);
+  font-size: 0.7rem;
   text-transform: uppercase;
 }
 
@@ -1175,6 +1238,10 @@ h2 {
   .compare-controls {
     grid-template-columns: 1fr;
   }
+
+  .compare-profile-cards {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Benchmark task breakdown */
@@ -1240,6 +1307,41 @@ h2 {
 .target-label {
   background: #00d4ff22;
   color: var(--cyan);
+}
+
+.compare-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.compare-summary-card {
+  min-width: 0;
+  min-height: 72px;
+  padding: 9px 10px;
+  border: 1px solid rgba(0, 212, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(0, 212, 255, 0.035);
+}
+
+.compare-summary-card strong {
+  display: block;
+  color: var(--cyan);
+  font: 700 15px/1.2 monospace;
+  overflow-wrap: anywhere;
+}
+
+.compare-summary-card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--dim);
+  font: 10px/1.35 monospace;
+}
+
+.compare-table-wrap {
+  width: 100%;
+  overflow-x: auto;
 }
 
 .compare-table {
@@ -1332,4 +1434,21 @@ h2 {
   max-height: 240px;
   overflow: auto;
   font: 11px/1.4 monospace;
+}
+
+@media (max-width: 980px) {
+  .compare-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .compare-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .compare-summary-grid {
+    grid-template-columns: 1fr;
+  }
 }

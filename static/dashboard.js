@@ -11,6 +11,7 @@ const state = {
   benchmarkSuites: [],
   models: [],
   compareProfiles: [],
+  compareRunning: false,
   tokensHistory: [],
   systemHistory: [],
   benchmarkHistoryChart: null,
@@ -115,7 +116,7 @@ function renderStatus(status) {
   setText("prefill-sec", telemetry.prefill_s === undefined || telemetry.prefill_s === null ? "--" : `${formatNumber(telemetry.prefill_s, 2)} tok/s`);
   setText("context-window", config.context_window ? config.context_window.toLocaleString() : "--");
   setText("kv-cache", kv.used_bytes ? formatBytes(kv.used_bytes) : kv.budget_mib ? `budget ${formatMiB(kv.budget_mib)}` : "--");
-  setText("shader-count", String(config.metal?.shader_count ?? config_manager_metal_shaders ?? "--"));
+  setText("shader-count", String(config.metal?.shader_count ?? "--"));
 
   // Signal line
   setText("status-message", status.message || telemetry.message || "Telemetry online.");
@@ -576,10 +577,47 @@ function renderCompareProfileOptions() {
   if (state.compareProfiles.some((profile) => profile.id === previousB)) bSelect.value = previousB;
   if (!bSelect.value && state.compareProfiles.length > 1) bSelect.value = state.compareProfiles[1].id;
   if (aSelect.value === bSelect.value && state.compareProfiles.length > 1) bSelect.value = state.compareProfiles[1].id;
+  renderCompareProfileCards();
 }
 
 function selectedCompareProfile(id) {
   return state.compareProfiles.find((profile) => profile.id === id) || null;
+}
+
+function profileSummary(profile) {
+  if (!profile) return "No config selected.";
+  const overrides = Object.entries(profile.overrides || {});
+  if (profile.id === "current") return "Live dashboard config; no temporary overrides.";
+  if (!overrides.length) return "No explicit overrides.";
+  const preview = overrides
+    .slice(0, 3)
+    .map(([key, value]) => `${key}=${String(value).split("/").pop()}`)
+    .join(", ");
+  const suffix = overrides.length > 3 ? ` +${overrides.length - 3} more` : "";
+  return `${overrides.length} override${overrides.length === 1 ? "" : "s"}: ${preview}${suffix}`;
+}
+
+function renderCompareProfileCards() {
+  const container = $("compare-profile-cards");
+  if (!container) return;
+  const configA = selectedCompareProfile($("compare-config-a")?.value);
+  const configB = selectedCompareProfile($("compare-config-b")?.value);
+  const suite = $("compare-suite")?.value || $("benchmark-suite")?.value || "quick_smoke";
+  const canCompare = Boolean(configA && configB && configA.id !== configB.id && !state.compareRunning);
+  const button = $("compare-benchmarks");
+  if (button) button.disabled = !canCompare;
+  setText(
+    "compare-run-status",
+    configA && configB && configA.id === configB.id
+      ? "Choose two different configs."
+      : `Ready suite: ${suite}`,
+  );
+  const card = (side, profile) => `<article class="compare-profile-card ${side}">
+    <span>${side === "a" ? "Config A" : "Config B"}</span>
+    <strong>${escHtml(profile?.label || "Not selected")}</strong>
+    <p>${escHtml(profileSummary(profile))}</p>
+  </article>`;
+  container.innerHTML = `${card("a", configA)}${card("b", configB)}`;
 }
 
 async function refreshBenchmarks() {
@@ -806,8 +844,14 @@ async function compareBenchmarks() {
     return;
   }
 
+  state.compareRunning = true;
+  renderCompareProfileCards();
+  const button = $("compare-benchmarks");
+  if (button) button.disabled = true;
   setText("benchmark-summary", "comparing");
   setText("status-message", `Running ${suite} against ${configA.label} and ${configB.label}...`);
+  setText("compare-run-status", "Running A/B benchmark comparison...");
+  let finalCompareStatus = "Comparison complete.";
   try {
     const result = await fetch("/api/benchmarks/compare", {
       method: "POST",
@@ -820,9 +864,15 @@ async function compareBenchmarks() {
     await renderBenchmarkHistory();
     setText("benchmark-summary", "compared");
     setText("status-message", `Compared ${configA.label} vs ${configB.label}`);
+    finalCompareStatus = "Comparison complete.";
   } catch (error) {
     setText("benchmark-summary", "compare error");
     setText("status-message", `Compare error: ${error.message}`);
+    finalCompareStatus = `Compare error: ${error.message}`;
+  } finally {
+    state.compareRunning = false;
+    renderCompareProfileCards();
+    setText("compare-run-status", finalCompareStatus);
   }
 }
 
@@ -837,11 +887,6 @@ function renderCompareView(data) {
   const diffs = data.diffs || {};
   const taskDiffs = data.task_diffs || [];
 
-  let html = `<div class="compare-header">
-    <div class="compare-label baseline-label">${escHtml(configA.label)}</div>
-    <div class="compare-label target-label">${escHtml(configB.label)}</div>
-  </div>`;
-
   const metrics = [
     { key: "tok_s_avg", label: "Tok/s", unit: " tok/s", fmt: (v) => formatNumber(v, 2) },
     { key: "latency_p50_seconds", label: "TTFT (ms)", unit: " ms", fmt: (v) => v !== null && v !== undefined ? (v * 1000).toFixed(0) : "--", scale: 1000 },
@@ -851,7 +896,25 @@ function renderCompareView(data) {
     { key: "output_tokens", label: "Output tokens", unit: "", fmt: (v) => v !== null && v !== undefined ? Number(v).toLocaleString() : "--" },
   ];
 
-  html += `<table class="compare-table">
+  let html = `<div class="compare-header">
+    <div class="compare-label baseline-label">${escHtml(configA.label)}</div>
+    <div class="compare-label target-label">${escHtml(configB.label)}</div>
+  </div>`;
+
+  html += `<div class="compare-summary-grid">`;
+  for (const m of metrics.slice(0, 4)) {
+    const d = diffs[m.key];
+    const valueA = d?.a ?? d?.baseline ?? resultA[m.key];
+    const valueB = d?.b ?? d?.target ?? resultB[m.key];
+    html += `<article class="compare-summary-card">
+      <span>${escHtml(m.label)}</span>
+      <strong>${m.fmt(valueB)}</strong>
+      <small>${escHtml(configA.label)}: ${m.fmt(valueA)} | ${formatDelta(d, m)}</small>
+    </article>`;
+  }
+  html += `</div>`;
+
+  html += `<div class="compare-table-wrap"><table class="compare-table">
     <thead><tr><th>Metric</th><th>${escHtml(configA.label)}</th><th>${escHtml(configB.label)}</th><th>Δ</th></tr></thead>
     <tbody>`;
   for (const m of metrics) {
@@ -861,11 +924,11 @@ function renderCompareView(data) {
     const deltaHtml = formatDelta(d, m);
     html += `<tr><td>${escHtml(m.label)}</td><td class="val-baseline">${m.fmt(valueA)}</td><td class="val-target">${m.fmt(valueB)}</td><td class="val-delta">${deltaHtml}</td></tr>`;
   }
-  html += `</tbody></table>`;
+  html += `</tbody></table></div>`;
 
   if (taskDiffs.length > 0) {
     html += `<h4 class="compare-subhead">Per-task breakdown</h4>`;
-    html += `<table class="compare-table compare-task-table">
+    html += `<div class="compare-table-wrap"><table class="compare-table compare-task-table">
       <thead><tr>
         <th>Task</th>
         <th>${escHtml(configA.label)} Score</th>
@@ -899,7 +962,7 @@ function renderCompareView(data) {
         <td class="val-delta">${tokDeltaHtml}</td>
       </tr>`;
     }
-    html += `</tbody></table>`;
+    html += `</tbody></table></div>`;
   }
 
   html += `<details class="compare-raw">
@@ -1109,6 +1172,9 @@ async function boot() {
   $("compare-benchmarks")?.addEventListener("click", () => {
     compareBenchmarks().catch((error) => setText("status-message", error.message));
   });
+  $("compare-config-a")?.addEventListener("change", renderCompareProfileCards);
+  $("compare-config-b")?.addEventListener("change", renderCompareProfileCards);
+  $("compare-suite")?.addEventListener("change", renderCompareProfileCards);
   $("update-check")?.addEventListener("click", () => {
     checkUpdate().catch((error) => setText("status-message", error.message));
   });

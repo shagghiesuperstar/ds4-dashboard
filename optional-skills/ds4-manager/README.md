@@ -1,33 +1,42 @@
-# ds4-manager — Hermes Skill for DS4 Dashboard
+# ds4-manager
 
-Manage your Dwarfstar DeepSeek V4 Flash engine directly from any Hermes agent.
-Provides 8 MCP tools for status, config, benchmarks, and updates.
+Hermes skill for operating a local DS4 Dwarfstar Dashboard over MCP.
 
-## Installation
+## Install
 
-1. **Start the DS4 Dashboard:**
-   ```bash
-   python3 dashboard.py --port 8765
-   ```
+Copy this directory into the Hermes optional skills directory:
 
-2. **Add MCP server to Hermes config** (`~/.hermes/config.yaml`):
-   ```yaml
-   mcp:
-     servers:
-       ds4:
-         transport: stdio
-         command: /path/to/dashboard.py
-         args: ["--mcp-stdio"]
-   ```
+```bash
+cp -R optional-skills/ds4-manager /path/to/hermes-agent/optional-skills/
+```
 
-3. **Load the skill** in your Hermes agent.
+Then add the dashboard MCP server to `~/.hermes/config.yaml`:
 
-## Requirements
+```yaml
+mcp:
+  servers:
+    ds4:
+      transport: stdio
+      command: /Users/m4mbp/ds4-dashboard/.venv/bin/python
+      args:
+        - /Users/m4mbp/ds4-dashboard/dashboard.py
+        - --mcp-stdio
+```
 
-- Python 3.9+
-- FastAPI + uvicorn (see requirements.txt)
-- DS4 engine running locally (port 8001 by default)
+Start the dashboard once with `./install.sh` and either run it manually or load
+the LaunchAgent:
 
-## License
+```bash
+.venv/bin/python dashboard.py --host 127.0.0.1 --port 8765
+./install.sh --launchd-dashboard
+```
 
-MIT — part of the Dwarfstar project by shagghiesuperstar.
+## Tools
+
+The skill expects the dashboard MCP server to expose:
+
+`get_status`, `get_metrics`, `get_config`, `get_schema`, `set_config`,
+`restart_ds4`, `run_benchmark`, `update_ds4`, and `rollback_ds4`.
+
+See [references/mcp-endpoints.md](references/mcp-endpoints.md) for transport and
+payload details.

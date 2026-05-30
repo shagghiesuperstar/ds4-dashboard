@@ -13,12 +13,14 @@ class DashboardToolRegistry:
         *,
         status_provider: Callable[[], Dict[str, Any]],
         metrics_provider: Callable[[], Dict[str, Any]],
+        schema_provider: Optional[Callable[[], Dict[str, Any]]] = None,
         config_manager: DS4ConfigManager,
         benchmark_runner: BenchmarkRunner,
         updater: DS4Updater,
     ) -> None:
         self.status_provider = status_provider
         self.metrics_provider = metrics_provider
+        self.schema_provider = schema_provider
         self.config_manager = config_manager
         self.benchmark_runner = benchmark_runner
         self.updater = updater
@@ -83,8 +85,13 @@ class DashboardToolRegistry:
                 },
             },
             {
+                "name": "rollback_ds4",
+                "description": "Restore the most recent DS4 binary backup created by the updater.",
+                "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+            },
+            {
                 "name": "get_schema",
-                "description": "List all available DS4 config options discovered from defaults, --help, and telemetry.",
+                "description": "List all DS4 config options discovered from defaults, --help, and telemetry, including current and overridden values.",
                 "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
             },
         ]
@@ -115,6 +122,10 @@ class DashboardToolRegistry:
                 asset_url=args.get("asset_url"),
                 sha256=args.get("sha256"),
             )
+        if name == "rollback_ds4":
+            return self.updater.rollback()
         if name == "get_schema":
+            if self.schema_provider:
+                return self.schema_provider()
             return self.config_manager.get_schema()
         raise KeyError(f"Unknown MCP tool: {name}")

@@ -6,11 +6,13 @@
 
 set -euo pipefail
 
-LABEL="com.ds4.server"
+LABEL="${DS4_LAUNCHD_LABEL:-com.dwarfstar.ds4}"
+PORT="${DS4_PRIMARY_PORT:-8001}"
+TARGET="gui/$(id -u)/${LABEL}"
 
 # 1) Gracefully stop the running service (if any)
 echo "[restart-ds4] Stopping $LABEL..."
-launchctl stop "$LABEL" 2>/dev/null || true
+launchctl stop "$TARGET" 2>/dev/null || true
 
 # 2) Small cooldown so the binary releases the port + Metal resources
 sleep 1.5
@@ -20,17 +22,17 @@ rm -f /tmp/ds4.lock
 
 # 4) Kickstart — launchd re-reads the plist and re-execs the launcher script
 echo "[restart-ds4] Starting $LABEL..."
-launchctl kickstart "$LABEL" 2>/dev/null || true
+launchctl kickstart -k "$TARGET" 2>/dev/null || true
 
 # 5) Wait for the port to become available
-echo "[restart-ds4] Waiting for DS4 to listen on port 8001..."
+echo "[restart-ds4] Waiting for DS4 to listen on port ${PORT}..."
 for i in $(seq 1 30); do
-  if lsof -i :8001 -P -n 2>/dev/null | grep -q LISTEN; then
+  if lsof -i :"${PORT}" -P -n 2>/dev/null | grep -q LISTEN; then
     echo "[restart-ds4] DS4 ready after ${i}s."
     exit 0
   fi
   sleep 1
 done
 
-echo "[restart-ds4] TIMEOUT waiting for DS4 port 8001."
+echo "[restart-ds4] TIMEOUT waiting for DS4 port ${PORT}."
 exit 1
