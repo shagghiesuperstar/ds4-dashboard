@@ -914,7 +914,8 @@ async function renderBenchmarkHistory() {
   const rows = history
     .map((entry) => ({
       ...entry,
-      label: entry.label || entry.suite_name || entry.suite || "Benchmark",
+      suiteKey: entry.suite || entry.suite_name || entry.label || "benchmark",
+      suiteLabel: entry.suite_name || entry.label || entry.suite || "Benchmark",
       timestampMs: Date.parse(entry.timestamp),
       tokValue: entry.tok_s === null || entry.tok_s === undefined ? null : Number(entry.tok_s),
     }))
@@ -934,32 +935,48 @@ async function renderBenchmarkHistory() {
     return;
   }
 
-  const labels = rows.map((row) => new Date(row.timestampMs).toLocaleString());
-  const suiteLabels = [...new Set(rows.map((row) => row.label))];
+  const suiteKeys = [...new Set(rows.map((row) => row.suiteKey))];
   const palette = ["#00ff41", "#00d4ff", "#ff9500", "#ff003b", "#dffaff", "#a6ff00"];
-  const datasets = suiteLabels.map((label, index) => ({
-    label,
-    data: rows.map((row) => (row.label === label ? row.tokValue : null)),
-    historyRows: rows.map((row) => (row.label === label ? row : null)),
-    borderColor: palette[index % palette.length],
-    backgroundColor: `${palette[index % palette.length]}22`,
-    pointRadius: 3,
-    pointHoverRadius: 5,
-    spanGaps: true,
-    tension: 0.25,
-  }));
+  const datasets = suiteKeys.map((suiteKey, index) => {
+    const suiteRows = rows.filter((row) => row.suiteKey === suiteKey);
+    const color = palette[index % palette.length];
+    return {
+      label: suiteRows[0]?.suiteLabel || suiteKey,
+      data: suiteRows.map((row) => ({ x: row.timestampMs, y: row.tokValue, row })),
+      borderColor: color,
+      backgroundColor: `${color}22`,
+      pointBackgroundColor: color,
+      pointBorderColor: "#0a0a0a",
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      spanGaps: false,
+      tension: 0.25,
+    };
+  });
+  const dateTick = (value) => new Date(Number(value)).toLocaleString(undefined, {
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
   if (state.benchmarkHistoryChart) state.benchmarkHistoryChart.destroy();
   state.benchmarkHistoryChart = new Chart(canvas, {
     type: "line",
-    data: { labels, datasets },
+    data: { datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: "nearest", intersect: false },
       scales: {
         x: {
-          ticks: { color: "#808080", maxRotation: 35, minRotation: 0 },
+          type: "linear",
+          ticks: {
+            color: "#808080",
+            maxRotation: 35,
+            minRotation: 0,
+            callback: dateTick,
+          },
           grid: { color: "#00ff4118" },
         },
         y: {
@@ -974,16 +991,19 @@ async function renderBenchmarkHistory() {
         tooltip: {
           callbacks: {
             title(items) {
-              const point = items[0];
-              const row = point?.dataset?.historyRows?.[point.dataIndex];
-              return row ? new Date(row.timestampMs).toLocaleString() : point?.label || "";
+              const row = items[0]?.raw?.row;
+              return row ? new Date(row.timestampMs).toLocaleString() : "";
             },
             label(context) {
-              const row = context.dataset.historyRows?.[context.dataIndex] || {};
-              const suite = row.suite_name || row.suite || context.dataset.label;
+              const row = context.raw?.row || {};
+              const suite = row.suite_name || row.suiteLabel || row.suite || context.dataset.label;
               const pass = row.pass_rate === undefined || row.pass_rate === null ? "--" : formatPercent(row.pass_rate);
               const tok = context.parsed.y === null || context.parsed.y === undefined ? "--" : `${formatNumber(context.parsed.y, 2)} tok/s`;
               return `${suite}: ${tok}, pass ${pass}`;
+            },
+            afterLabel(context) {
+              const row = context.raw?.row || {};
+              return row.compare_label ? `Run: ${row.compare_label}` : "";
             },
           },
         },
@@ -991,7 +1011,7 @@ async function renderBenchmarkHistory() {
     },
   });
 
-  if (status) status.textContent = `${rows.length} runs`;
+  if (status) status.textContent = `${rows.length}/${history.length} runs with tok/s`;
 }
 
 async function runBenchmark() {
