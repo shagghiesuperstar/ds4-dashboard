@@ -11,6 +11,10 @@ const state = {
   benchmarkSuites: [],
   models: [],
   modelDescriptions: {},
+  configProfiles: [],
+  profileDetails: {},
+  expandedProfileId: null,
+  editingProfileId: null,
   compareProfiles: [],
   compareRunning: false,
   tokensHistory: [],
@@ -530,6 +534,7 @@ async function saveSchemaOption(key, meta, input, applyRestart = false) {
   if (!result.ok) throw new Error(`${url} returned ${result.status}`);
   const data = await result.json();
   await refreshConfig();
+  await loadProfiles().catch((error) => console.warn("profiles:", error.message));
 
   const updated = data.updated || data.result || {};
   const restartNeeded = Boolean(updated.restart_needed);
@@ -625,6 +630,461 @@ function renderSchema(schema) {
   buildCompareProfiles();
 }
 
+// ── Config Profiles ────────────────────────────────────────
+
+function profileOverrideCount(profile) {
+  return Number(profile?.override_count ?? profile?.count ?? 0);
+}
+
+function profileOverrideText(profile) {
+  const count = profileOverrideCount(profile);
+  return `${count} override${count === 1 ? "" : "s"}`;
+}
+
+function profileTitle(profile) {
+  return profile?.label || profile?.id || "Profile";
+}
+
+function parseTagsInput(value) {
+  return String(value || "")
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function profileUrl(id, suffix = "") {
+  return `/api/config-profiles/${encodeURIComponent(id)}${suffix}`;
+}
+
+async function profileResponseJson(response) {
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+  if (!response.ok) {
+    const detail = data.detail || data.error || `HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+  return data;
+}
+
+function profileTimestamp(value) {
+  if (!value) return "portable YAML";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+async function loadProfiles() {
+  const list = $("profiles-list");
+  if (!list) return;
+  try {
+    const data = await fetchJson("/api/config-profiles");
+    state.configProfiles = Array.isArray(data) ? data : data.profiles || [];
+    const profileIds = new Set(state.configProfiles.map((profile) => profile.id));
+    for (const id of Object.keys(state.profileDetails)) {
+      if (!profileIds.has(id)) delete state.profileDetails[id];
+    }
+    if (state.expandedProfileId && !profileIds.has(state.expandedProfileId)) state.expandedProfileId = null;
+    if (state.editingProfileId && !profileIds.has(state.editingProfileId)) state.editingProfileId = null;
+    renderProfiles(state.configProfiles);
+  } catch (error) {
+    state.configProfiles = [];
+    setText("profile-count", "0");
+    list.innerHTML = `<div class="profiles-empty">Profile load error: ${escHtml(error.message)}</div>`;
+  }
+}
+
+function clearProfileCreateForm() {
+  for (const id of ["profile-label-input", "profile-description-input", "profile-tags-input"]) {
+    const input = $(id);
+    if (input) input.value = "";
+  }
+}
+
+function renderProfileTags(profile) {
+  const tags = document.createElement("div");
+  tags.className = "profile-tags";
+  const values = Array.isArray(profile.tags) ? profile.tags : [];
+  if (!values.length) {
+    const empty = document.createElement("code");
+    empty.textContent = "untagged";
+    tags.append(empty);
+  } else {
+    for (const tag of values) {
+      const badge = document.createElement("code");
+      badge.textContent = tag;
+      tags.append(badge);
+    }
+  }
+  return tags;
+}
+
+function profileField(labelText, input) {
+  const label = document.createElement("label");
+  const labelSpan = document.createElement("span");
+  labelSpan.textContent = labelText;
+  label.append(labelSpan, input);
+  return label;
+}
+
+function renderProfileEditForm(profile) {
+  const form = document.createElement("form");
+  form.className = "profile-edit-form";
+
+  const labelInput = document.createElement("input");
+  labelInput.type = "text";
+  labelInput.value = profileTitle(profile);
+  labelInput.required = true;
+  labelInput.spellcheck = false;
+
+  const descriptionInput = document.createElement("textarea");
+  descriptionInput.value = profile.description || "";
+  descriptionInput.spellcheck = false;
+
+  const tagsInput = document.createElement("input");
+  tagsInput.type = "text";
+  tagsInput.value = Array.isArray(profile.tags) ? profile.tags.join(", ") : "";
+  tagsInput.spellcheck = false;
+
+  const buttons = document.createElement("div");
+  buttons.className = "profile-edit-actions";
+
+  const save = document.createElement("button");
+  save.type = "submit";
+  save.textContent = "Save";
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => {
+    state.editingProfileId = null;
+    renderProfiles(state.configProfiles);
+  });
+
+  buttons.append(save, cancel);
+  form.append(
+    profileField("Label", labelInput),
+    profileField("Description", descriptionInput),
+    profileField("Tags", tagsInput),
+    buttons,
+  );
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const payload = {
+      label: labelInput.value.trim(),
+      description: descriptionInput.value,
+      tags: parseTagsInput(tagsInput.value),
+    };
+    if (!payload.label) {
+      setText("status-message", "Profile label is required.");
+      labelInput.focus();
+      return;
+    }
+    saveProfileMetadata(profile.id, payload, save).catch((error) => {
+      setText("status-message", `Profile update error: ${error.message}`);
+    });
+  });
+
+  return form;
+}
+
+function renderProfileDetails(profile) {
+  const detail = document.createElement("div");
+  detail.className = "profile-details";
+  const fullProfile = state.profileDetails[profile.id];
+
+  if (!fullProfile) {
+    detail.textContent = "Loading profile...";
+    return detail;
+  }
+
+  const meta = document.createElement("dl");
+  meta.className = "profile-details-meta";
+  const rows = [
+    ["ID", fullProfile.id],
+    ["Created", fullProfile.created || "--"],
+    ["Updated", fullProfile.updated || "--"],
+    ["Hardware", fullProfile.hardware_hint || "--"],
+  ];
+  for (const [term, value] of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = term;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    meta.append(dt, dd);
+  }
+
+  const pre = document.createElement("pre");
+  pre.className = "profile-overrides-json";
+  pre.textContent = JSON.stringify(fullProfile.overrides || {}, null, 2);
+  detail.append(meta, pre);
+  return detail;
+}
+
+function renderProfiles(profiles) {
+  const list = $("profiles-list");
+  if (!list) return;
+  const rows = Array.isArray(profiles) ? profiles : [];
+  setText("profile-count", String(rows.length));
+  list.replaceChildren();
+
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "profiles-empty";
+    empty.textContent = "No saved profiles. Export current config to create one.";
+    list.append(empty);
+    return;
+  }
+
+  for (const profile of rows) {
+    const card = document.createElement("article");
+    card.className = "profile-card";
+    if (profile.active) card.classList.add("active");
+    card.dataset.profileId = profile.id;
+
+    const header = document.createElement("div");
+    header.className = "profile-header";
+    const title = document.createElement("strong");
+    title.textContent = profileTitle(profile);
+
+    const count = document.createElement("span");
+    count.textContent = profileOverrideText(profile);
+    header.append(title, count);
+    card.append(header);
+
+    if (state.editingProfileId === profile.id) {
+      card.append(renderProfileEditForm(profile));
+    } else {
+      const desc = document.createElement("p");
+      desc.className = "profile-meta";
+      desc.textContent = profile.description || "No description.";
+      card.append(desc, renderProfileTags(profile));
+    }
+
+    const preview = document.createElement("div");
+    preview.className = "profile-overrides-preview";
+    const updated = profile.updated ? `updated ${profileTimestamp(profile.updated)}` : "portable YAML";
+    preview.textContent = `${profileOverrideText(profile)} saved | ${updated}`;
+    card.append(preview);
+
+    if (state.expandedProfileId === profile.id) {
+      card.append(renderProfileDetails(profile));
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "profile-actions";
+
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "profile-action apply";
+    apply.textContent = "Apply";
+    apply.addEventListener("click", () => applyProfile(profile.id, apply));
+
+    const details = document.createElement("button");
+    details.type = "button";
+    details.className = "profile-action details";
+    details.textContent = state.expandedProfileId === profile.id ? "Hide" : "Details";
+    details.addEventListener("click", () => {
+      toggleProfileDetails(profile.id).catch((error) => {
+        setText("status-message", `Profile detail error: ${error.message}`);
+      });
+    });
+
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "profile-action edit";
+    edit.textContent = state.editingProfileId === profile.id ? "Close Edit" : "Edit";
+    edit.addEventListener("click", () => {
+      state.editingProfileId = state.editingProfileId === profile.id ? null : profile.id;
+      renderProfiles(state.configProfiles);
+    });
+
+    const download = document.createElement("button");
+    download.type = "button";
+    download.className = "profile-action download";
+    download.textContent = "Download";
+    download.addEventListener("click", () => downloadProfile(profile.id));
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "profile-action delete";
+    remove.textContent = "Delete";
+    remove.addEventListener("click", () => deleteProfile(profile.id));
+    actions.append(apply, details, edit, download, remove);
+
+    card.append(actions);
+    list.append(card);
+  }
+}
+
+async function toggleProfileDetails(id) {
+  if (!id) return;
+  if (state.expandedProfileId === id) {
+    state.expandedProfileId = null;
+    renderProfiles(state.configProfiles);
+    return;
+  }
+  state.expandedProfileId = id;
+  renderProfiles(state.configProfiles);
+  if (state.profileDetails[id]) return;
+
+  const response = await fetch(profileUrl(id));
+  const detail = await profileResponseJson(response);
+  state.profileDetails[id] = detail;
+  renderProfiles(state.configProfiles);
+}
+
+function downloadProfile(id) {
+  if (!id) return;
+  const link = document.createElement("a");
+  link.href = profileUrl(id, "/download");
+  link.download = `${id}.yaml`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
+async function exportProfile(event) {
+  event?.preventDefault();
+  const labelInput = $("profile-label-input");
+  const descriptionInput = $("profile-description-input");
+  const tagsInput = $("profile-tags-input");
+  const cleanLabel = (labelInput?.value || "").trim();
+  if (!cleanLabel) {
+    setText("status-message", "Profile label is required.");
+    labelInput?.focus();
+    return;
+  }
+  const description = descriptionInput?.value || "";
+  const tags = parseTagsInput(tagsInput?.value || "");
+  const button = $("export-profile-btn");
+  if (button) button.disabled = true;
+
+  try {
+    const response = await fetch("/api/config-profiles/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: cleanLabel, description, tags }),
+    });
+    const data = await profileResponseJson(response);
+    clearProfileCreateForm();
+    if (data.profile?.id) {
+      state.profileDetails[data.profile.id] = data.profile;
+      state.expandedProfileId = data.profile.id;
+    }
+    await loadProfiles();
+    setText("status-message", `Exported config profile: ${cleanLabel}`);
+  } catch (error) {
+    setText("status-message", `Profile export error: ${error.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function importProfile(event) {
+  const input = event?.target || $("profile-file-input");
+  const file = input?.files?.[0];
+  if (!file) return;
+
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const response = await fetch("/api/config-profiles/import", {
+      method: "POST",
+      body: form,
+    });
+    const data = await profileResponseJson(response);
+    if (data.profile?.id) {
+      state.profileDetails[data.profile.id] = data.profile;
+      state.expandedProfileId = data.profile.id;
+    }
+    await loadProfiles();
+    setText("status-message", `Imported config profile: ${data.profile?.label || file.name}`);
+  } catch (error) {
+    setText("status-message", `Profile import error: ${error.message}`);
+  } finally {
+    if (input) input.value = "";
+  }
+}
+
+async function applyProfile(id, button) {
+  if (!id) return;
+  const originalText = button?.textContent || "Apply";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Applying...";
+  }
+  setText("status-message", `Applying profile ${id}...`);
+  try {
+    const response = await fetch(profileUrl(id, "/apply"), { method: "POST" });
+    const data = await profileResponseJson(response);
+    await refreshConfig();
+    await loadProfiles();
+    await refreshStatus();
+    const restart = data.result?.restart || {};
+    const suffix = restart.triggered ? " DS4 restart requested." : "";
+    setText("status-message", `Applied profile: ${data.profile?.label || id}.${suffix}`);
+  } catch (error) {
+    setText("status-message", `Profile apply error: ${error.message}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+async function deleteProfile(id) {
+  if (!id) return;
+  const profile = state.configProfiles.find((item) => item.id === id);
+  const label = profile?.label || id;
+  if (!window.confirm(`Delete config profile "${label}"?`)) return;
+  try {
+    const response = await fetch(profileUrl(id), { method: "DELETE" });
+    await profileResponseJson(response);
+    delete state.profileDetails[id];
+    if (state.expandedProfileId === id) state.expandedProfileId = null;
+    if (state.editingProfileId === id) state.editingProfileId = null;
+    await loadProfiles();
+    setText("status-message", `Deleted profile: ${label}`);
+  } catch (error) {
+    setText("status-message", `Profile delete error: ${error.message}`);
+  }
+}
+
+async function editProfile(id, changes) {
+  const response = await fetch(profileUrl(id), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+  const data = await profileResponseJson(response);
+  return data;
+}
+
+async function saveProfileMetadata(id, payload, button) {
+  if (button) button.disabled = true;
+  try {
+    const data = await editProfile(id, payload);
+    delete state.profileDetails[id];
+    if (data.profile?.id) state.profileDetails[data.profile.id] = data.profile;
+    state.editingProfileId = null;
+    await loadProfiles();
+    setText("status-message", `Profile updated: ${data.profile?.label || payload.label}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 // ── Config Save ─────────────────────────────────────────────
 
 async function saveConfig() {
@@ -643,6 +1103,7 @@ async function saveConfig() {
     $("config-edit-value").value = "";
     $("schema-editor-bar").style.display = "none";
     await refreshConfig();
+    await loadProfiles().catch((error) => console.warn("profiles:", error.message));
     const restartNeeded = data.updated?.restart_needed;
     const msg = `Config updated: ${data.updated?.key} = ${data.updated?.value}`;
     setText("status-message", restartNeeded ? `${msg} (restart needed)` : msg);
@@ -668,6 +1129,7 @@ async function applyConfig() {
     $("config-edit-value").value = "";
     $("schema-editor-bar").style.display = "none";
     await refreshConfig();
+    await loadProfiles().catch((error) => console.warn("profiles:", error.message));
     const r = data.result?.restart || {};
     if (r.triggered && r.exit_code === 0) {
       setText("restart-status", "DS4 restarted successfully.");
@@ -1522,6 +1984,9 @@ async function boot() {
   $("restart-ds4-btn")?.addEventListener("click", () => {
     restartDS4().catch((error) => setText("status-message", error.message));
   });
+  $("profile-create-form")?.addEventListener("submit", exportProfile);
+  $("import-profile-btn")?.addEventListener("click", () => $("profile-file-input")?.click());
+  $("profile-file-input")?.addEventListener("change", importProfile);
   $("run-benchmark")?.addEventListener("click", () => {
     runBenchmark().catch((error) => setText("status-message", error.message));
   });
@@ -1552,6 +2017,7 @@ async function boot() {
   // Initial loads
   await Promise.all([
     refreshConfig().catch((error) => setText("status-message", error.message)),
+    loadProfiles().catch((error) => console.warn("profiles:", error.message)),
     refreshBenchmarks().catch((error) => console.warn("benchmarks:", error.message)),
     renderBenchmarkHistory().catch((error) => console.warn("history:", error.message)),
     refreshMCP().catch((error) => console.warn("mcp:", error.message)),

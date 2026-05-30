@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import Body, FastAPI, HTTPException, Query
+import yaml
+from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -25,6 +28,8 @@ from updater.updater import DS4Updater
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+CONFIG_PROFILES_DIR = BASE_DIR / "config-profiles"
+CONFIG_PROFILES_DIR.mkdir(exist_ok=True)
 
 DS4_HOME = Path(os.environ.get("DS4_HOME", "~/ds4")).expanduser()
 DS4_BINARY = Path(os.environ.get("DS4_BINARY", str(DS4_HOME / "ds4-server"))).expanduser()
@@ -163,6 +168,18 @@ class UpdateRequest(BaseModel):
     sha256: Optional[str] = None
 
 
+class ConfigProfileExportRequest(BaseModel):
+    label: str
+    description: Optional[str] = ""
+    tags: Optional[list[str]] = None
+
+
+class ConfigProfileMetadataUpdate(BaseModel):
+    label: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+
 def get_dashboard_config() -> Dict[str, Any]:
     return config_manager.get_config()
 
@@ -257,6 +274,142 @@ def normalize_benchmark_config(raw: Any, fallback_label: str) -> Dict[str, Any]:
             overrides["model"] = raw
 
     return {"id": profile_id, "label": label, "overrides": overrides}
+
+
+def utc_timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def slugify_profile_id(label: str) -> str:
+    slug = str(label or "").strip().lower()
+    slug = re.sub(r"\s+", "-", slug)
+    slug = re.sub(r"[^a-z0-9_-]+", "", slug)
+    slug = re.sub(r"-{2,}", "-", slug).strip("-_")
+    return slug or "profile"
+
+
+def profile_path(profile_id: str) -> Optional[Path]:
+    candidate = str(profile_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", candidate):
+        return None
+    return CONFIG_PROFILES_DIR / f"{candidate}.yaml"
+
+
+def ensure_config_profiles_dir() -> None:
+    CONFIG_PROFILES_DIR.mkdir(exist_ok=True)
+
+
+def unique_profile_id(base_id: str) -> str:
+    ensure_config_profiles_dir()
+    profile_id = slugify_profile_id(base_id)
+    candidate = profile_id
+    suffix = 1
+    while (CONFIG_PROFILES_DIR / f"{candidate}.yaml").exists():
+        candidate = f"{profile_id}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def clean_profile_tags(tags: Any) -> list[str]:
+    if tags is None:
+        return []
+    if isinstance(tags, str):
+        values = tags.split(",")
+    elif isinstance(tags, list):
+        values = tags
+    else:
+        return []
+    return [str(tag).strip() for tag in values if tag is not None and str(tag).strip()]
+
+
+def validate_profile_payload(data: Any) -> Dict[str, Any]:
+    if not isinstance(data, dict):
+        raise ValueError("Profile YAML must contain a mapping.")
+
+    label = str(data.get("label") or "").strip()
+    if not label:
+        raise ValueError("Profile label is required.")
+
+    overrides = data.get("overrides")
+    if not isinstance(overrides, dict):
+        raise ValueError("Profile overrides must be a mapping.")
+
+    now = utc_timestamp()
+    return {
+        "label": label,
+        "description": str(data.get("description") or ""),
+        "tags": clean_profile_tags(data.get("tags")),
+        "hardware_hint": str(data.get("hardware_hint") or ""),
+        "created": str(data.get("created") or now),
+        "updated": str(data.get("updated") or now),
+        "overrides": dict(overrides),
+    }
+
+
+def profile_is_active(profile: Dict[str, Any]) -> bool:
+    return config_values_equal(profile.get("overrides") or {}, config_manager.get_overrides())
+
+
+def profile_response(profile_id: str, data: Dict[str, Any], *, include_overrides: bool = True) -> Dict[str, Any]:
+    overrides = data.get("overrides") or {}
+    response: Dict[str, Any] = {
+        "id": profile_id,
+        "label": data.get("label", profile_id),
+        "description": data.get("description", ""),
+        "tags": data.get("tags", []),
+        "hardware_hint": data.get("hardware_hint", ""),
+        "override_count": len(overrides),
+        "count": len(overrides),
+        "created": data.get("created", ""),
+        "updated": data.get("updated", ""),
+        "active": profile_is_active(data),
+    }
+    if include_overrides:
+        response["overrides"] = overrides
+    return response
+
+
+def list_config_profiles() -> list[dict]:
+    ensure_config_profiles_dir()
+    profiles = []
+    for profile_file in sorted(CONFIG_PROFILES_DIR.glob("*.yaml")):
+        try:
+            raw = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
+            data = validate_profile_payload(raw)
+            profiles.append(profile_response(profile_file.stem, data, include_overrides=False))
+        except Exception:
+            continue
+    return profiles
+
+
+def read_profile(profile_id: str) -> Optional[dict]:
+    path = profile_path(profile_id)
+    if path is None or not path.exists():
+        return None
+    try:
+        data = validate_profile_payload(yaml.safe_load(path.read_text(encoding="utf-8")))
+    except Exception:
+        return None
+    data["id"] = path.stem
+    return data
+
+
+def save_profile(profile_id: str, data: dict) -> dict:
+    ensure_config_profiles_dir()
+    path = profile_path(profile_id)
+    if path is None:
+        raise ValueError("Invalid profile id.")
+    profile = validate_profile_payload(data)
+    path.write_text(yaml.safe_dump(profile, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return profile_response(path.stem, profile)
+
+
+def delete_profile(profile_id: str) -> bool:
+    path = profile_path(profile_id)
+    if path and path.exists():
+        path.unlink()
+        return True
+    return False
 
 
 def restore_config_overrides(snapshot: Dict[str, Any]) -> Dict[str, Any]:
@@ -526,6 +679,133 @@ async def api_restart_ds4() -> Dict[str, Any]:
 @app.get("/api/config-overrides")
 async def api_config_overrides() -> Dict[str, Any]:
     return config_manager.get_overrides()
+
+
+# ── Config Profiles ───────────────────────────────────────────
+
+@app.get("/api/config-profiles")
+async def api_list_config_profiles() -> Dict[str, Any]:
+    return {"profiles": list_config_profiles()}
+
+
+@app.post("/api/config-profiles/export")
+async def api_export_config_profile(
+    request: ConfigProfileExportRequest,
+    download: bool = Query(default=False),
+) -> Any:
+    label = request.label.strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="Profile label is required.")
+
+    now = utc_timestamp()
+    profile_id = unique_profile_id(label)
+    profile = {
+        "label": label,
+        "description": request.description or "",
+        "tags": clean_profile_tags(request.tags),
+        "hardware_hint": "",
+        "created": now,
+        "updated": now,
+        "overrides": config_manager.get_overrides(),
+    }
+    saved = save_profile(profile_id, profile)
+
+    if download:
+        yaml_text = yaml.safe_dump(profile, sort_keys=False, allow_unicode=True)
+        return Response(
+            content=yaml_text,
+            media_type="application/x-yaml",
+            headers={"Content-Disposition": f'attachment; filename="{profile_id}.yaml"'},
+        )
+
+    return {"ok": True, "profile": saved}
+
+
+@app.post("/api/config-profiles/import")
+async def api_import_config_profile(file: UploadFile = File(...)) -> Dict[str, Any]:
+    try:
+        content = await file.read()
+        raw_text = content.decode("utf-8")
+        profile = validate_profile_payload(yaml.safe_load(raw_text))
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Profile YAML must be UTF-8 text.") from exc
+    except yaml.YAMLError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    profile_id = unique_profile_id(profile["label"])
+    saved = save_profile(profile_id, profile)
+    return {"ok": True, "profile": saved}
+
+
+@app.get("/api/config-profiles/{profile_id}")
+async def api_get_config_profile(profile_id: str) -> Dict[str, Any]:
+    profile = read_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return profile_response(profile["id"], profile)
+
+
+@app.get("/api/config-profiles/{profile_id}/download")
+async def api_download_config_profile(profile_id: str) -> FileResponse:
+    path = profile_path(profile_id)
+    if path is None or not path.exists() or read_profile(profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return FileResponse(
+        path,
+        media_type="application/x-yaml",
+        filename=f"{path.stem}.yaml",
+    )
+
+
+@app.post("/api/config-profiles/{profile_id}/apply")
+async def api_apply_config_profile(profile_id: str) -> Dict[str, Any]:
+    profile = read_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+
+    result = restore_config_overrides(profile.get("overrides") or {})
+    restart = {"triggered": False, "exit_code": 0, "stdout": "", "stderr": "", "method": "none"}
+    if result.get("restart_needed"):
+        restart = config_manager.restart_ds4(restart_script=RESTART_SCRIPT)
+    result["restart"] = restart
+
+    return {
+        "ok": True,
+        "profile": profile_response(profile["id"], profile),
+        "result": result,
+        "config": config_manager.get_config(),
+    }
+
+
+@app.put("/api/config-profiles/{profile_id}")
+async def api_update_config_profile(profile_id: str, update: ConfigProfileMetadataUpdate) -> Dict[str, Any]:
+    profile = read_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+
+    if update.label is not None:
+        label = update.label.strip()
+        if not label:
+            raise HTTPException(status_code=400, detail="Profile label is required.")
+        profile["label"] = label
+    if update.description is not None:
+        profile["description"] = update.description
+    if update.tags is not None:
+        profile["tags"] = clean_profile_tags(update.tags)
+    profile["updated"] = utc_timestamp()
+
+    saved = save_profile(profile_id, profile)
+    return {"ok": True, "profile": saved}
+
+
+@app.delete("/api/config-profiles/{profile_id}")
+async def api_delete_config_profile(profile_id: str) -> Dict[str, Any]:
+    removed = delete_profile(profile_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return {"ok": True, "removed": True, "id": profile_id}
 
 
 # ── Model Discovery & Switching ──────────────────────────────────

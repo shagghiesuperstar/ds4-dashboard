@@ -280,6 +280,36 @@
           </div>
         </section>
 
+        <section class="panel config-profiles-panel" aria-labelledby="config-profiles-title">
+          <div class="panel-header">
+            <div>
+              <p>Config Profiles</p>
+              <h2 id="config-profiles-title">Profiles</h2>
+            </div>
+            <span class="panel-accent" id="profile-count">0</span>
+          </div>
+          <form class="profiles-toolbar" id="profile-create-form">
+            <label>
+              <span>Label</span>
+              <input id="profile-label-input" type="text" placeholder="Profile label" required spellcheck="false" />
+            </label>
+            <label>
+              <span>Description</span>
+              <input id="profile-description-input" type="text" placeholder="Optional note" spellcheck="false" />
+            </label>
+            <label>
+              <span>Tags</span>
+              <input id="profile-tags-input" type="text" placeholder="tag, tag" spellcheck="false" />
+            </label>
+            <button id="export-profile-btn" type="submit">Export Current</button>
+            <button id="import-profile-btn" type="button">Import YAML</button>
+            <input type="file" id="profile-file-input" accept=".yaml,.yml" hidden />
+          </form>
+          <div class="profiles-list" id="profiles-list" aria-live="polite">
+            <div class="profiles-empty">No saved profiles. Export current config to create one.</div>
+          </div>
+        </section>
+
         <section class="panel model-panel" aria-labelledby="model-title">
           <div class="panel-header">
             <div>

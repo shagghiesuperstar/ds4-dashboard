@@ -1,7 +1,9 @@
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
 from fastapi.testclient import TestClient
 
 import dashboard
@@ -11,6 +13,14 @@ from bridge.engine_client import DS4EngineClient, EngineClientConfig
 class DashboardApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(dashboard.app)
+        self._clear_config_overrides()
+
+    def tearDown(self):
+        self._clear_config_overrides()
+
+    def _clear_config_overrides(self):
+        for key in list(dashboard.config_manager.get_overrides()):
+            dashboard.config_manager.clear_override(key)
 
     def test_index_serves_shell(self):
         response = self.client.get("/")
@@ -82,6 +92,95 @@ class DashboardApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"/models/a.gguf": "HF description"})
+
+    def test_config_profile_export_captures_current_overrides(self):
+        dashboard.config_manager.set_override("poll_interval_ms", 1500)
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(dashboard, "CONFIG_PROFILES_DIR", Path(tmpdir)):
+            response = self.client.post(
+                "/api/config-profiles/export",
+                json={"label": "Low Latency", "description": "Fast polling", "tags": ["latency"]},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            profile = response.json()["profile"]
+            self.assertEqual(profile["id"], "low-latency")
+            self.assertEqual(profile["override_count"], 1)
+            saved = yaml.safe_load((Path(tmpdir) / "low-latency.yaml").read_text())
+            self.assertEqual(saved["overrides"], {"poll_interval_ms": 1500})
+
+    def test_config_profile_import_avoids_label_collisions(self):
+        payload = b"label: Shared Profile\noverrides:\n  poll_interval_ms: 2500\n"
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(dashboard, "CONFIG_PROFILES_DIR", Path(tmpdir)):
+            first = self.client.post(
+                "/api/config-profiles/import",
+                files={"file": ("shared.yaml", payload, "application/x-yaml")},
+            )
+            second = self.client.post(
+                "/api/config-profiles/import",
+                files={"file": ("shared.yaml", payload, "application/x-yaml")},
+            )
+
+            self.assertEqual(first.status_code, 200)
+            self.assertEqual(second.status_code, 200)
+            self.assertEqual(first.json()["profile"]["id"], "shared-profile")
+            self.assertEqual(second.json()["profile"]["id"], "shared-profile-1")
+
+    def test_config_profile_apply_replaces_current_overrides(self):
+        dashboard.config_manager.set_override("poll_interval_ms", 3000)
+        dashboard.config_manager.set_override("custom_test_key", "remove-me")
+        profile = {
+            "label": "Polling Profile",
+            "description": "",
+            "tags": [],
+            "hardware_hint": "",
+            "created": "2026-05-30T12:00:00Z",
+            "updated": "2026-05-30T12:00:00Z",
+            "overrides": {"poll_interval_ms": 1200},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(dashboard, "CONFIG_PROFILES_DIR", Path(tmpdir)):
+            dashboard.save_profile("polling-profile", profile)
+            response = self.client.post("/api/config-profiles/polling-profile/apply")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(dashboard.config_manager.get_overrides(), {"poll_interval_ms": 1200})
+
+    def test_config_profile_metadata_update_preserves_overrides(self):
+        profile = {
+            "label": "Original",
+            "description": "Before",
+            "tags": ["old"],
+            "overrides": {"poll_interval_ms": 900},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(dashboard, "CONFIG_PROFILES_DIR", Path(tmpdir)):
+            dashboard.save_profile("original", profile)
+            response = self.client.put(
+                "/api/config-profiles/original",
+                json={"label": "Renamed", "description": "After", "tags": ["new"]},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            saved = yaml.safe_load((Path(tmpdir) / "original.yaml").read_text())
+            self.assertEqual(saved["label"], "Renamed")
+            self.assertEqual(saved["description"], "After")
+            self.assertEqual(saved["tags"], ["new"])
+            self.assertEqual(saved["overrides"], {"poll_interval_ms": 900})
+
+    def test_config_profile_download_returns_stored_yaml(self):
+        profile = {
+            "label": "Downloadable Test",
+            "description": "Portable profile",
+            "tags": ["portable"],
+            "overrides": {"poll_interval_ms": 1100},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(dashboard, "CONFIG_PROFILES_DIR", Path(tmpdir)):
+            dashboard.save_profile("downloadable-test", profile)
+            response = self.client.get("/api/config-profiles/downloadable-test/download")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("downloadable-test.yaml", response.headers["content-disposition"])
+            saved = yaml.safe_load(response.content.decode("utf-8"))
+            self.assertEqual(saved["label"], "Downloadable Test")
+            self.assertEqual(saved["overrides"], {"poll_interval_ms": 1100})
 
 
 if __name__ == "__main__":
