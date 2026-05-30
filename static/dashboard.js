@@ -51,6 +51,13 @@ function formatPercent(value) {
   return `${formatNumber(value, 1)}%`;
 }
 
+function fmtVal(value) {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  const text = String(value);
+  return text === "" ? "—" : text;
+}
+
 function formatDuration(seconds) {
   if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) return "--";
   const total = Math.max(0, Math.floor(Number(seconds)));
@@ -116,7 +123,7 @@ function setStateChip(status) {
   const chip = $("status-chip");
   const stateLabel = $("state-label");
   const logo = document.querySelector(".dwarfstar-logo");
-  const rawState = dashboardRunState(status);
+  const rawState = String(dashboardRunState(status) || "unknown").toLowerCase();
   const labelMap = { running: "RUNNING", stopped: "OFFLINE", error: "ERROR", unknown: "UNKNOWN" };
   const displayLabel = labelMap[rawState] || rawState.toUpperCase();
   if (chip) chip.dataset.state = rawState;
@@ -430,11 +437,108 @@ function renderConfig(config) {
   if (viewer) viewer.innerHTML = syntaxHighlight(json);
 
   // Update endpoint pill from live config
-  const host = config.primary_host || "127.0.0.1";
-  const port = config.primary_port || config.port || "8001";
+  const host = config.primary_host ?? "127.0.0.1";
+  const port = config.primary_port ?? "8001";
   const pill = $("endpoint-pill");
   if (pill) pill.textContent = `${host}:${port}`;
   buildCompareProfiles();
+}
+
+function schemaInputId(key) {
+  return `schema-input-${String(key).replace(/[^A-Za-z0-9_-]/g, "-")}`;
+}
+
+function schemaCurrentValue(meta) {
+  return meta.current !== undefined ? meta.current : meta.default;
+}
+
+function schemaInputKind(meta) {
+  const type = String(meta.type || "string").toLowerCase();
+  if (Array.isArray(meta.choices) && meta.choices.length) return "enum";
+  if (type === "enum") return "enum";
+  if (type === "bool" || type === "boolean") return "bool";
+  if (type === "int" || type === "integer") return "int";
+  if (type === "float" || type === "number") return "float";
+  return "string";
+}
+
+function createSchemaInput(key, meta) {
+  const currentVal = schemaCurrentValue(meta);
+  const kind = schemaInputKind(meta);
+  const inputId = schemaInputId(key);
+  let input;
+
+  if (kind === "enum") {
+    input = document.createElement("select");
+    if (currentVal === null || currentVal === undefined) {
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = "—";
+      input.append(emptyOption);
+    }
+    const choices = [...new Set([...(meta.choices || []), currentVal].filter((value) => value !== undefined && value !== null))];
+    for (const choice of choices) {
+      const option = document.createElement("option");
+      option.value = String(choice);
+      option.textContent = fmtVal(choice);
+      input.append(option);
+    }
+    input.value = currentVal === null || currentVal === undefined ? "" : String(currentVal);
+  } else {
+    input = document.createElement("input");
+    if (kind === "bool") {
+      input.type = "checkbox";
+      input.checked = Boolean(currentVal);
+      input.className = "schema-toggle-input";
+    } else if (kind === "int" || kind === "float") {
+      input.type = "number";
+      input.step = kind === "int" ? "1" : "any";
+      input.value = currentVal === null || currentVal === undefined ? "" : String(currentVal);
+    } else {
+      input.type = "text";
+      input.value = currentVal === null || currentVal === undefined ? "" : String(currentVal);
+      input.spellcheck = false;
+    }
+  }
+
+  input.id = inputId;
+  input.dataset.configKey = key;
+  input.dataset.configType = kind;
+  input.setAttribute("aria-label", key);
+  return input;
+}
+
+function readSchemaInputValue(input) {
+  if (!input) return null;
+  if (input.type === "checkbox") return input.checked;
+  return input.value === "" ? null : input.value;
+}
+
+async function saveSchemaOption(key, meta, input, applyRestart = false) {
+  const value = readSchemaInputValue(input);
+  const url = applyRestart ? "/api/config/apply" : "/api/config";
+  const method = applyRestart ? "POST" : "PATCH";
+  const action = applyRestart ? "Applying" : "Saving";
+  setText("status-message", `${action} ${key}...`);
+  if (applyRestart) setText("restart-status", `${action} ${key}...`);
+
+  const result = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  if (!result.ok) throw new Error(`${url} returned ${result.status}`);
+  const data = await result.json();
+  await refreshConfig();
+
+  const updated = data.updated || data.result || {};
+  const restartNeeded = Boolean(updated.restart_needed);
+  const displayValue = fmtVal(updated.value ?? value);
+  setText("status-message", `${key} = ${displayValue}${restartNeeded && !applyRestart ? " (restart needed)" : ""}`);
+  if (applyRestart) {
+    const restart = updated.restart || {};
+    setText("restart-status", restart.error || (restart.triggered ? "Restart requested." : "No restart required."));
+  }
 }
 
 function renderSchema(schema) {
@@ -457,40 +561,65 @@ function renderSchema(schema) {
     type.textContent = meta.type || "unknown";
     title.append(name, type);
 
-    // Show current and default inline in description
-    const currentVal = meta.current !== undefined ? meta.current : meta.default;
+    const currentVal = schemaCurrentValue(meta);
     const defaultValue = meta.default;
-    const fmtVal = (v) => {
-      if (v === null || v === undefined) return "—";
-      const s = String(v);
-      return s === "" ? "—" : s;
-    };
     const desc = document.createElement("p");
     desc.textContent = `${meta.desc || "No description available."} (current: ${fmtVal(currentVal)}, default: ${fmtVal(defaultValue)})`;
 
-    // Also show as separate styled code elements for quick scanning
-    const valuesDiv = document.createElement("div");
-    valuesDiv.className = "schema-values";
+    const input = createSchemaInput(key, meta);
+    const inputLabel = document.createElement("label");
+    inputLabel.className = "schema-field";
+    inputLabel.htmlFor = input.id;
 
-    const currentDisplay = document.createElement("code");
-    currentDisplay.className = "schema-current";
-    currentDisplay.textContent = `current: ${fmtVal(currentVal)}`;
+    const labelText = document.createElement("span");
+    labelText.textContent = key;
 
-    const defaultDisplay = document.createElement("code");
-    defaultDisplay.className = "schema-default";
-    defaultDisplay.textContent = `default: ${fmtVal(defaultValue)}`;
+    if (schemaInputKind(meta) === "bool") {
+      const toggleShell = document.createElement("span");
+      toggleShell.className = "schema-toggle";
+      const toggleTrack = document.createElement("span");
+      toggleTrack.className = "schema-toggle-track";
+      toggleShell.append(input, toggleTrack);
+      inputLabel.append(labelText, toggleShell);
+    } else {
+      inputLabel.append(labelText, input);
+    }
 
-    valuesDiv.append(currentDisplay, defaultDisplay);
-
-    item.append(title, desc, valuesDiv);
-    item.tabIndex = 0;
-    item.classList.add("editable");
-    item.addEventListener("click", () => {
-      $("config-edit-key").value = key;
-      $("config-edit-value").value = String(currentVal ?? "");
-      $("schema-editor-bar").style.display = "flex";
-      $("config-edit-value").focus();
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.textContent = "Save";
+    saveButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      saveSchemaOption(key, meta, input, false).catch((error) => {
+        setText("status-message", `Config save error: ${error.message}`);
+      });
     });
+
+    const applyButton = document.createElement("button");
+    applyButton.type = "button";
+    applyButton.textContent = "Apply";
+    applyButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      saveSchemaOption(key, meta, input, true).catch((error) => {
+        setText("status-message", `Config apply error: ${error.message}`);
+        setText("restart-status", error.message);
+      });
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && input.type !== "checkbox") {
+        event.preventDefault();
+        saveSchemaOption(key, meta, input, false).catch((error) => {
+          setText("status-message", `Config save error: ${error.message}`);
+        });
+      }
+    });
+
+    const controlRow = document.createElement("div");
+    controlRow.className = "schema-control-row";
+    controlRow.append(inputLabel, saveButton, applyButton);
+
+    item.append(title, desc, controlRow);
     list.append(item);
   }
   buildCompareProfiles();

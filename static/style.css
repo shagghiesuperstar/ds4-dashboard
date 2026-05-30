@@ -688,6 +688,126 @@ h2 {
   margin: 8px 0 0;
 }
 
+.schema-control-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.schema-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.schema-field > span:first-child {
+  color: var(--dim);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.schema-field input[type="text"],
+.schema-field input[type="number"],
+.schema-field select {
+  min-width: 0;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #070707;
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.schema-field input:focus,
+.schema-field select:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.22);
+  outline: none;
+}
+
+.schema-control-row button {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #070707;
+  color: var(--green);
+  cursor: pointer;
+  font-size: 0.76rem;
+}
+
+.schema-control-row button:last-child {
+  color: var(--cyan);
+}
+
+.schema-control-row button:hover,
+.schema-control-row button:focus-visible {
+  border-color: currentColor;
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.18);
+  outline: none;
+}
+
+.schema-toggle {
+  position: relative;
+  display: inline-flex;
+  width: 44px;
+  height: 24px;
+}
+
+.schema-toggle-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.schema-toggle-track {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #070707;
+  transition: background 160ms, border-color 160ms;
+}
+
+.schema-toggle-track::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--dim);
+  content: "";
+  transition: transform 160ms, background 160ms;
+}
+
+.schema-toggle-input:checked + .schema-toggle-track {
+  border-color: var(--green);
+  background: rgba(0, 255, 65, 0.16);
+}
+
+.schema-toggle-input:checked + .schema-toggle-track::after {
+  transform: translateX(20px);
+  background: var(--green);
+}
+
+@media (max-width: 760px) {
+  .schema-control-row {
+    grid-template-columns: 1fr;
+  }
+
+  .schema-control-row button {
+    width: 100%;
+  }
+}
+
 .schema-current {
   display: block;
   max-width: 100%;

@@ -70,6 +70,7 @@ class DS4ConfigManager:
         return {
             "engine": "ds4",
             "binary": self._path_info(Path(str(values.get("binary", self.binary_path))).expanduser()),
+            "primary_host": values.get("primary_host"),
             "primary_port": values.get("primary_port"),
             "telem_url": values.get("telem_url"),
             "completion_url": values.get("completion_url"),
@@ -112,6 +113,7 @@ class DS4ConfigManager:
         "mtp",
         "context_window",
         "binary",
+        "primary_host",
         "primary_port",
         "kv_disk_cache",
         "kv_cache_budget_mib",
@@ -305,6 +307,14 @@ class DS4ConfigManager:
                 "DS4 primary server and telemetry port.",
                 source="dashboard env",
                 flag="--port",
+            ),
+            "primary_host": ConfigOption(
+                "primary_host",
+                "string",
+                self.defaults.get("primary_host"),
+                "DS4 primary server host used by dashboard API clients.",
+                source="dashboard env",
+                flag="--host",
             ),
             "telem_url": ConfigOption(
                 "telem_url",

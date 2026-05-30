@@ -21,6 +21,7 @@ class DashboardApiTests(unittest.TestCase):
         response = self.client.get("/api/config")
         self.assertEqual(response.status_code, 200)
         data = response.json()
+        self.assertEqual(data["primary_host"], "127.0.0.1")
         self.assertEqual(data["primary_port"], 8001)
         self.assertEqual(data["context_window"], 131072)
         self.assertEqual(data["kv_disk_cache"]["path"], "/Volumes/OWC_MODELS_TB5/DS4/cache")
@@ -32,6 +33,7 @@ class DashboardApiTests(unittest.TestCase):
         schema = response.json()
         self.assertEqual(schema["context_window"]["type"], "int")
         self.assertEqual(schema["model"]["type"], "path")
+        self.assertEqual(schema["primary_host"]["type"], "string")
 
     def test_agentic_full_suite_is_registered(self):
         response = self.client.get("/api/benchmarks")
