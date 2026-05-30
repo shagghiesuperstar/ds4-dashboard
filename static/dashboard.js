@@ -67,15 +67,60 @@ function setText(id, value) {
   if (node) node.textContent = value;
 }
 
+function hasValue(value) {
+  return value !== null && value !== undefined && value !== "";
+}
+
+function numberValue(value) {
+  if (!hasValue(value) || Number.isNaN(Number(value))) return null;
+  return Number(value);
+}
+
+function pathBasename(path) {
+  return typeof path === "string" && path ? path.split("/").pop() : "";
+}
+
+function metricAverage(stats, metric) {
+  const value = stats?.[metric]?.avg;
+  return numberValue(value);
+}
+
+function bestModelStats(status) {
+  const primary = status.model_averages || {};
+  if ((primary.count || 0) > 0) return primary;
+
+  const allStats = status.model_averages_all || {};
+  const configModel = status.config?.model?.path || status.config?.model || "";
+  const candidates = [
+    configModel,
+    pathBasename(configModel),
+    status.telemetry?.model,
+    "ds4",
+  ].filter(Boolean);
+
+  for (const key of candidates) {
+    const stats = allStats[key];
+    if (stats && (stats.count || 0) > 0) return stats;
+  }
+
+  return Object.values(allStats).find((stats) => stats && (stats.count || 0) > 0) || primary;
+}
+
 // ── Status Chip ─────────────────────────────────────────────
+
+function dashboardRunState(status) {
+  return status.state || (status.running ? "running" : "stopped");
+}
 
 function setStateChip(status) {
   const chip = $("status-chip");
   const stateLabel = $("state-label");
-  const rawState = status.state || (status.running ? "running" : "stopped");
+  const logo = document.querySelector(".dwarfstar-logo");
+  const rawState = dashboardRunState(status);
   const labelMap = { running: "RUNNING", stopped: "OFFLINE", error: "ERROR", unknown: "UNKNOWN" };
   const displayLabel = labelMap[rawState] || rawState.toUpperCase();
   if (chip) chip.dataset.state = rawState;
+  if (logo) logo.dataset.state = rawState;
   if (stateLabel) stateLabel.textContent = displayLabel;
 }
 
@@ -105,14 +150,16 @@ function renderStatus(status) {
   const cpu = system.cpu || {};
   const gpu = system.gpu || {};
   const temp = system.temperature || {};
+  const process = system.process || {};
+  const modelAvg = bestModelStats(status);
 
   // Core metrics
-  const tokens = telemetry.tok_s ?? telemetry.tokens_per_second ?? status.tok_s ?? status.model_averages?.tok_s?.avg;
-  const prefill = telemetry.prefill_tok_s ?? telemetry.prefill_s ?? telemetry.prefill_tokens_per_second ?? status.model_averages?.prefill_tok_s?.avg;
+  const tokens = telemetry.tok_s ?? telemetry.tokens_per_second ?? status.tok_s ?? metricAverage(modelAvg, "tok_s");
+  const prefill = telemetry.prefill_tok_s ?? telemetry.prefill_s ?? telemetry.prefill_tokens_per_second ?? metricAverage(modelAvg, "prefill_tok_s");
   setText("tokens-sec", tokens === undefined || tokens === null ? "--" : `${formatNumber(tokens, 2)} tok/s`);
   setText("prefill-sec", prefill === undefined || prefill === null ? "--" : `${formatNumber(prefill, 2)} tok/s`);
   setText("context-window", config.context_window ? config.context_window.toLocaleString() : "--");
-  setText("kv-cache", kv.used_bytes ? formatBytes(kv.used_bytes) : kv.budget_mib ? `budget ${formatMiB(kv.budget_mib)}` : "--");
+  setText("kv-cache", hasValue(kv.used_bytes) ? formatBytes(kv.used_bytes) : kv.budget_mib ? `budget ${formatMiB(kv.budget_mib)}` : "--");
   setText("shader-count", String(config.metal?.shader_count ?? "--"));
 
   // Signal line
@@ -130,10 +177,10 @@ function renderStatus(status) {
     fill.style.width = `${pct}%`;
     setMemoryColor(fill, pct);
   }
-  setText("memory-used", memory.used_bytes ? formatBytes(memory.used_bytes) : formatPercent(usedPercent));
-  setText("memory-total", memory.total_bytes ? "Total " + formatBytes(memory.total_bytes) : "--");
-  setText("memory-free", memory.free_bytes ? "Free " + formatBytes(memory.free_bytes) : "--");
-  setText("swap-used", memory.swap?.used_bytes ? formatBytes(memory.swap.used_bytes) + " swap" : "--");
+  setText("memory-used", hasValue(memory.used_bytes) ? formatBytes(memory.used_bytes) : formatPercent(usedPercent));
+  setText("memory-total", hasValue(memory.total_bytes) ? "Total " + formatBytes(memory.total_bytes) : "--");
+  setText("memory-free", hasValue(memory.free_bytes) ? "Free " + formatBytes(memory.free_bytes) : "--");
+  setText("swap-used", hasValue(memory.swap?.used_bytes) ? formatBytes(memory.swap.used_bytes) + " swap" : "--");
   setText("memory-pressure", memory.pressure || "--");
 
   // KV cache gauge
@@ -158,7 +205,7 @@ function renderStatus(status) {
   // Show used / budget for KV cache
   const kvUsed = kv.disk_used_bytes || kv.used_bytes;
   const kvBudget = kv.budget_bytes || (kv.budget_mib ? Number(kv.budget_mib) * 1024 * 1024 : null);
-  if (kvUsed) {
+  if (hasValue(kvUsed)) {
     setText("kv-label", `${formatBytes(kvUsed)} / ${formatBytes(kvBudget)}`);
   } else if (kvBudget && engineRunning) {
     setText("kv-label", `budget: ${formatBytes(kvBudget)} (no cache data yet)`);
@@ -172,13 +219,14 @@ function renderStatus(status) {
   const kvTotal = kv.budget_bytes || kv.total_bytes;
   setText("kv-total", kvTotal ? "Total " + formatBytes(kvTotal) : "--");
   setText("kv-path", kv.path || "--");
-  setText("process-rss", memory.ds4_rss_bytes ? formatBytes(memory.ds4_rss_bytes) : "--");
+  const rssBytes = process.rss_bytes ?? memory.ds4_rss_bytes;
+  setText("process-rss", hasValue(rssBytes) ? formatBytes(rssBytes) : "--");
 
   // CPU / GPU / Temps
   const cpuPct = cpu.usage_percent;
-  const gpuPct = gpu.usage_percent;
-  const cpuTemp = temp.cpu;
-  const gpuTempVal = temp.gpu;
+  const gpuPct = gpu.usage_percent ?? gpu.utilization_percent;
+  const cpuTemp = temp.cpu ?? temp.cpu_c ?? cpu.temperature_c;
+  const gpuTempVal = temp.gpu ?? temp.gpu_c ?? gpu.temperature_c;
 
   const cpuText = cpuPct !== undefined && cpuPct !== null
     ? formatPercent(cpuPct)
@@ -192,7 +240,6 @@ function renderStatus(status) {
   setText("gpu-temp", gpuTempVal !== undefined && gpuTempVal !== null ? `${formatNumber(gpuTempVal, 1)}°C` : "N/A");
 
   // Per-model running averages
-  const modelAvg = status.model_averages || {};
   if (modelAvg.count > 0) {
     const tok = modelAvg.tok_s || {};
     const prefill = modelAvg.prefill_tok_s || {};
@@ -239,15 +286,26 @@ function renderStatus(status) {
   // Animate logo based on KV fill and live throughput
   const logo = document.querySelector(".dwarfstar-logo");
   if (logo) {
-    logo.dataset.state = status.state || "unknown";
     if (kvPct !== undefined && kvPct !== null) {
-      logo.style.setProperty("--kv-distortion", String(kvPct));
+      const distortion = Math.min(100, Math.max(0, Number(kvPct)));
+      if (!Number.isNaN(distortion)) {
+        const lensingShift = 0.55 + distortion * 0.018;
+        const lensingScale = 1 + distortion * 0.0006;
+        logo.style.setProperty("--kv-distortion", String(distortion));
+        logo.style.setProperty("--lensing-shift", `${lensingShift.toFixed(2)}px`);
+        logo.style.setProperty("--lensing-shift-negative", `${(-lensingShift).toFixed(2)}px`);
+        logo.style.setProperty("--lensing-scale", lensingScale.toFixed(3));
+      }
     }
     const tokenRate = Number(tokens);
     if (!Number.isNaN(tokenRate) && tokenRate > 0) {
       const pulseSeconds = Math.max(0.45, Math.min(2.4, 2.35 - Math.log10(tokenRate + 1) * 0.55));
+      const starDrift = Math.min(36, tokenRate / 2);
+      const lensingRotation = Math.min(1.8, 0.35 + starDrift * 0.03);
       logo.style.setProperty("--tok-pulse-duration", `${pulseSeconds.toFixed(2)}s`);
-      logo.style.setProperty("--tok-star-drift", String(Math.min(36, tokenRate / 2)));
+      logo.style.setProperty("--tok-star-drift", String(starDrift));
+      logo.style.setProperty("--lensing-rotation", `${lensingRotation.toFixed(2)}deg`);
+      logo.style.setProperty("--lensing-rotation-negative", `${(-lensingRotation).toFixed(2)}deg`);
     }
   }
 }
@@ -1064,8 +1122,29 @@ function truncateDescription(description, maxLength = 120) {
   return `${value.slice(0, maxLength - 1).replace(/\s+\S*$/, "")}...`;
 }
 
+function inferredModelDescription(model) {
+  const filename = String(model.filename || pathBasename(model.path)).toLowerCase();
+  const repo = String(model.repo || "").toLowerCase();
+  if (filename === "ds4flash.gguf") {
+    return "Active DS4 model symlink. The resolved GGUF is shown by the current model path.";
+  }
+  if (filename.includes("mtp")) {
+    return "MTP draft GGUF used for speculative decoding with the primary DS4 model.";
+  }
+  if (filename.includes("deepseek-v4-flash") || repo.includes("deepseek-v4")) {
+    return "DeepSeek V4 Flash GGUF discovered in the local DS4 model directory.";
+  }
+  if (filename.endsWith(".gguf")) {
+    return "Local GGUF model discovered from the configured DS4 search paths.";
+  }
+  return "";
+}
+
 function modelDescriptionFor(model) {
-  return state.modelDescriptions?.[model.path] || state.modelDescriptions?.[model.filename] || model.description || "";
+  return state.modelDescriptions?.[model.path]
+    || state.modelDescriptions?.[model.filename]
+    || model.description
+    || inferredModelDescription(model);
 }
 
 function renderModelOptionDetails() {
@@ -1145,11 +1224,13 @@ async function refreshModelList() {
     setText("model-summary", currentName);
     // Show per-model averages for all known models
     if (data.averages) {
-      for (const [modelName, stats] of Object.entries(data.averages)) {
-        if (stats.count > 0 && modelName === currentName) {
-          // Already rendered in renderStatus; update summary
-          setText("model-summary", `${currentName}: ${stats.total_calls} calls`);
-        }
+      const currentStats = data.averages[currentPath]
+        || data.averages[currentName]
+        || data.averages.ds4
+        || Object.values(data.averages).find((stats) => stats && stats.count > 0);
+      if (currentStats?.count > 0) {
+        // Already rendered in renderStatus; keep the summary aligned with the visible model.
+        setText("model-summary", `${currentName}: ${currentStats.total_calls} calls`);
       }
     }
     renderModelOptionDetails();

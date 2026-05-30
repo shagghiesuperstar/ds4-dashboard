@@ -28,6 +28,8 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
   background:
     linear-gradient(rgba(0, 255, 65, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px),
@@ -38,6 +40,45 @@ body {
   letter-spacing: 0;
 }
 
+.starfield-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 12% 18%, rgba(223, 250, 255, 0.46) 0, rgba(223, 250, 255, 0.46) 1px, transparent 1.8px),
+    radial-gradient(circle at 74% 26%, rgba(0, 212, 255, 0.26) 0, rgba(0, 212, 255, 0.26) 1px, transparent 2px),
+    radial-gradient(circle at 38% 72%, rgba(0, 255, 65, 0.24) 0, rgba(0, 255, 65, 0.24) 1px, transparent 1.7px),
+    radial-gradient(circle at 88% 84%, rgba(223, 250, 255, 0.34) 0, rgba(223, 250, 255, 0.34) 1px, transparent 1.6px);
+  background-position: 0 0, 88px 124px, 164px 46px, 42px 228px;
+  background-size: 220px 220px, 320px 320px, 430px 430px, 560px 560px;
+  opacity: 0.5;
+  animation: page-starfield-drift 100s linear infinite;
+}
+
+.starfield-layer::before,
+.starfield-layer::after {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  background-image:
+    radial-gradient(circle at 18% 42%, rgba(223, 250, 255, 0.22) 0, rgba(223, 250, 255, 0.22) 1px, transparent 1.8px),
+    radial-gradient(circle at 66% 12%, rgba(0, 212, 255, 0.18) 0, rgba(0, 212, 255, 0.18) 1px, transparent 1.9px),
+    radial-gradient(circle at 82% 64%, rgba(0, 255, 65, 0.16) 0, rgba(0, 255, 65, 0.16) 1px, transparent 1.8px);
+  background-size: 360px 360px, 520px 520px, 680px 680px;
+}
+
+.starfield-layer::before {
+  opacity: 0.68;
+  animation: page-starfield-drift 140s linear infinite reverse;
+}
+
+.starfield-layer::after {
+  opacity: 0.34;
+  transform: scale(1.18);
+  animation: page-starfield-drift 180s linear infinite;
+}
+
 button,
 input,
 select,
@@ -46,6 +87,8 @@ textarea {
 }
 
 .app-shell {
+  position: relative;
+  z-index: 1;
   width: min(1440px, 100%);
   margin: 0 auto;
   padding: 20px;
@@ -97,39 +140,54 @@ textarea {
   height: 64px;
   overflow: visible;
   contain: layout;
+  --lensing-shift: 0.75px;
+  --lensing-shift-negative: -0.75px;
+  --lensing-scale: 1.018;
+  --lensing-rotation: 0.65deg;
+  --lensing-rotation-negative: -0.65deg;
 }
 
 /* ── Starfield (background stars) ── */
 
-.starfield circle {
+.dwarfstar-logo .starfield,
+.dwarfstar-logo .lensing-rings {
+  transform-box: view-box;
+  transform-origin: 80px 80px;
+}
+
+.dwarfstar-logo .starfield circle {
   fill: #dffaff;
   opacity: 0.85;
   transform-origin: 80px 80px;
   transition: transform 260ms ease;
 }
 
-.starfield-deep circle {
+.dwarfstar-logo .starfield-deep circle {
   opacity: 0.40;
   animation: star-twinkle 6s ease-in-out infinite;
 }
 
-.starfield-near circle {
+.dwarfstar-logo .starfield-near circle {
   opacity: 0.70;
   animation: star-twinkle 4s ease-in-out infinite reverse;
 }
 
 .dwarfstar-logo[data-state="running"] .starfield circle {
-  transform: translateX(calc(var(--kv-distortion, 0) * 0.03px)) rotate(calc(var(--tok-star-drift, 0) * 0.03deg));
   animation-duration: 2s;
 }
 
-.dwarfstar-logo[data-state="running"] .starfield-near circle {
+.dwarfstar-logo[data-state="running"] .starfield {
+  animation: starfield-warp 4.8s ease-in-out infinite;
+}
+
+.dwarfstar-logo[data-state="running"] .starfield-near {
   filter: url("#lensing-distort");
+  animation-duration: 3.2s;
 }
 
 /* ── Gravitational Lensing Rings ── */
 
-.lensing-rings circle {
+.dwarfstar-logo .lensing-rings circle {
   fill: none;
   stroke: var(--cyan);
   stroke-width: 0.8;
@@ -140,21 +198,22 @@ textarea {
 
 .dwarfstar-logo[data-state="running"] .lensing-rings {
   filter: url("#lensing-distort");
+  animation: lensing-filter-warp 5s ease-in-out infinite;
 }
 
-.lensing-rings circle:nth-child(2) {
+.dwarfstar-logo .lensing-rings circle:nth-child(2) {
   animation-delay: 800ms;
   stroke-width: 0.6;
   opacity: 0.35;
 }
 
-.lensing-rings circle:nth-child(3) {
+.dwarfstar-logo .lensing-rings circle:nth-child(3) {
   animation-delay: 1600ms;
   stroke-width: 0.4;
   opacity: 0.25;
 }
 
-.lensing-rings circle:nth-child(4) {
+.dwarfstar-logo .lensing-rings circle:nth-child(4) {
   animation-delay: 2400ms;
   stroke-width: 0.3;
   opacity: 0.15;
@@ -162,7 +221,7 @@ textarea {
 
 /* ── Accretion Disk ── */
 
-.accretion-disk {
+.dwarfstar-logo .accretion-disk {
   fill: url("#disk-glow");
   opacity: 0.9;
   transform-box: fill-box;
@@ -170,12 +229,12 @@ textarea {
   animation: disk-drift 10s linear infinite;
 }
 
-.disk-shadow {
+.dwarfstar-logo .disk-shadow {
   opacity: 0.20;
   filter: url("#logo-blur");
 }
 
-.disk-inner {
+.dwarfstar-logo .disk-inner {
   fill: url("#disk-inner");
   opacity: 0.85;
   transform-box: fill-box;
@@ -183,14 +242,14 @@ textarea {
   animation: disk-drift 7s linear infinite reverse;
 }
 
-.accretion-particles {
+.dwarfstar-logo .accretion-particles {
   filter: drop-shadow(0 0 5px rgba(0, 212, 255, 0.55));
   opacity: 0.92;
   transform-box: fill-box;
   transform-origin: center;
 }
 
-.particle-trail {
+.dwarfstar-logo .particle-trail {
   fill: none;
   stroke: rgba(223, 250, 255, 0.76);
   stroke-width: 1.2;
@@ -200,19 +259,19 @@ textarea {
   animation: particle-trail-flow 4s ease-in-out infinite;
 }
 
-.particle-trail.trail-b {
+.dwarfstar-logo .particle-trail.trail-b {
   stroke: rgba(0, 255, 65, 0.62);
   stroke-dasharray: 4 20;
   animation-delay: 600ms;
 }
 
-.particle-trail.trail-c {
+.dwarfstar-logo .particle-trail.trail-c {
   stroke: rgba(0, 212, 255, 0.70);
   stroke-dasharray: 3 18;
   animation-delay: 1300ms;
 }
 
-.particle {
+.dwarfstar-logo .particle {
   fill: #ffffff;
   opacity: 0.82;
   transform-box: fill-box;
@@ -220,19 +279,19 @@ textarea {
   animation: particle-orbit 4.8s ease-in-out infinite;
 }
 
-.particle-b {
+.dwarfstar-logo .particle-b {
   fill: var(--green);
   animation-delay: 800ms;
 }
 
-.particle-c {
+.dwarfstar-logo .particle-c {
   fill: var(--cyan);
   animation-delay: 1500ms;
 }
 
 /* ── Corona (diffuse envelope) ── */
 
-.corona {
+.dwarfstar-logo .corona {
   fill: url("#core-glow");
   filter: url("#logo-glow");
   animation: corona-flare 4s ease-in-out infinite;
@@ -240,7 +299,7 @@ textarea {
 
 /* ── Core (white-hot degenerate matter) ── */
 
-.core {
+.dwarfstar-logo .core {
   fill: #ffffff;
   filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 24px rgba(0, 212, 255, 0.75)) drop-shadow(0 0 48px rgba(0, 255, 65, 0.40));
   transform-box: fill-box;
@@ -250,7 +309,7 @@ textarea {
 
 /* ── Telemetry Data-Pulse Ring ── */
 
-.data-pulse-ring {
+.dwarfstar-logo .data-pulse-ring {
   fill: none;
   stroke: #00ff41;
   stroke-width: 0.6;
@@ -809,13 +868,23 @@ h2 {
   gap: 4px;
   max-height: 168px;
   overflow: auto;
+  padding-right: 2px;
 }
 .model-panel .model-option-detail {
-  padding: 7px 0;
-  border-top: 1px solid rgba(0, 255, 65, 0.12);
+  padding: 7px 9px;
+  border: 1px solid rgba(0, 255, 65, 0.12);
+  border-left: 2px solid transparent;
+  background: rgba(0, 255, 65, 0.025);
   cursor: pointer;
 }
+.model-panel .model-option-detail:hover,
+.model-panel .model-option-detail:focus-visible {
+  border-color: rgba(0, 212, 255, 0.32);
+  outline: none;
+}
 .model-panel .model-option-detail[data-selected="true"] {
+  border-left-color: var(--green);
+  background: rgba(0, 255, 65, 0.06);
   color: var(--green);
 }
 .model-panel .model-option-detail strong {
@@ -872,6 +941,15 @@ h2 {
   color: var(--dim);
   font-size: 0.76rem;
   overflow-wrap: anywhere;
+}
+
+@keyframes page-starfield-drift {
+  from {
+    background-position: 0 0, 88px 124px, 164px 46px, 42px 228px;
+  }
+  to {
+    background-position: 220px 220px, 408px 444px, 594px 476px, 602px 788px;
+  }
 }
 
 @keyframes core-pulse {
@@ -958,6 +1036,26 @@ h2 {
   50% {
     opacity: 0.85;
     transform: scale(1.15);
+  }
+}
+
+@keyframes starfield-warp {
+  0%,
+  100% {
+    transform: translate3d(var(--lensing-shift-negative, -0.75px), 0, 0) rotate(var(--lensing-rotation-negative, -0.65deg)) scale(1);
+  }
+  50% {
+    transform: translate3d(var(--lensing-shift, 0.75px), 0, 0) rotate(var(--lensing-rotation, 0.65deg)) scale(var(--lensing-scale, 1.018));
+  }
+}
+
+@keyframes lensing-filter-warp {
+  0%,
+  100% {
+    transform: translate3d(var(--lensing-shift-negative, -0.75px), 0, 0) rotate(var(--lensing-rotation-negative, -0.65deg)) scale(1);
+  }
+  50% {
+    transform: translate3d(var(--lensing-shift, 0.75px), 0, 0) rotate(var(--lensing-rotation, 0.65deg)) scale(var(--lensing-scale, 1.018));
   }
 }
 
@@ -1268,6 +1366,15 @@ h2 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .dwarfstar-logo,
+  .dwarfstar-logo *,
+  .starfield-layer,
+  .starfield-layer::before,
+  .starfield-layer::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
   *,
   *::before,
   *::after {
