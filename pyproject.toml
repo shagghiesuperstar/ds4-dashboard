@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# Add repo root to sys.path so tests can `import dashboard`, `import engine_client`, etc.
+pythonpath = ["."]
+testpaths = ["tests"]
