@@ -167,6 +167,16 @@ bash scripts/install-launchd.sh --uninstall
 bash scripts/install-launchd.sh --uninstall --component dashboard
 ```
 
+### Running the tests
+
+```bash
+# Tests must run from the repo's venv (they import fastapi, uvicorn, etc.)
+.venv/bin/python -m pytest              # pytest
+.venv/bin/python -m unittest discover -s tests   # stdlib unittest
+```
+
+The tests import the dashboard module as a top-level name (`import dashboard`), so they need to be run with the venv's Python — using the system `python3` (which lacks `fastapi`/`uvicorn`) will fail at collection.
+
 ---
 
 ## Architecture

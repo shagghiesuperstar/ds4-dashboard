@@ -1,4 +1,6 @@
 [tool.pytest.ini_options]
-# Add repo root to sys.path so tests can `import dashboard`, `import engine_client`, etc.
+# Add the repo root to sys.path so tests can `import dashboard` and friends
+# without per-module sys.path manipulation. Pairs with tests/conftest.py which
+# keeps the path trick working for callers that don't go through pytest.
 pythonpath = ["."]
 testpaths = ["tests"]
