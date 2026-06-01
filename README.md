@@ -144,15 +144,27 @@ Open http://127.0.0.1:8765
 
 ### Launchd (Recommended)
 
+The `install-launchd.sh` script renders the plist templates (substituting path placeholders with values detected on your machine) and bootstraps them under your user launchd domain. By default it installs both the engine and the dashboard.
+
 ```bash
-# Edit the plists to point at your paths, then:
+# Install both (engine + dashboard)
 bash scripts/install-launchd.sh
+
+# Install just the dashboard
+bash scripts/install-launchd.sh --component dashboard
+
+# Install just the engine
+bash scripts/install-launchd.sh --component engine
 ```
+
+Path defaults can be overridden with `DS4_HOME`, `DS4_DASHBOARD_DIR`, `PYTHON_PATH`, or `DS4_BINARY` env vars. The script will refuse to bootstrap a service whose plist still contains un-rendered placeholders or whose Python cannot import `fastapi`+`uvicorn`.
 
 Uninstall:
 
 ```bash
 bash scripts/install-launchd.sh --uninstall
+# or one component only:
+bash scripts/install-launchd.sh --uninstall --component dashboard
 ```
 
 ---
