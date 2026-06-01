@@ -47,6 +47,72 @@ A cyberpunk-themed web dashboard and MCP server for DS4 (DeepSeek V4 Flash infer
 
 ---
 
+## A/B Configuration Testing & Benchmarking
+
+A primary use case for this dashboard is **systematic A/B testing of DS4 configurations**. The workflow below is designed for the DS4 maintainer iterating on inference performance.
+
+### Why the dashboard helps
+
+- **Zero-friction config changes** — every discovered flag is one click away in the UI; no hand-editing YAMLs or restarting manually.
+- **Tracked history** — every config snapshot is timestamped, every benchmark run is recorded with its config fingerprint.
+- **Side-by-side compare mode** — pick two benchmark runs and see tok/s, p95, pass rate, KV cache impact, and memory pressure overlaid.
+- **MCP-driven automation** — let an agent sweep a parameter grid overnight and report winners.
+
+### A/B workflow (manual)
+
+1. **Baseline** — apply your current config. Run a benchmark suite (e.g. *Full Coding Eval*). Note the tok/s, p95, pass rate.
+2. **Candidate** — change exactly one parameter (e.g. `--kv-cache-size`). Click *Apply* — the dashboard calls `launchctl kickstart` and DS4 reloads in seconds.
+3. **Re-run** — execute the same suite. The run is auto-tagged with the config fingerprint.
+4. **Compare** — open *Benchmark History → Compare Mode* → select baseline + candidate rows → see the delta inline.
+5. **Promote or revert** — click *Revert to baseline* in the config panel, or save the candidate as the new default.
+
+### A/B workflow (automated, via MCP)
+
+When the MCP server is exposed, an agent can sweep a parameter grid overnight:
+
+```python
+# Example: agent-driven kv-cache size sweep
+from mcp import Client
+
+async with Client("http://127.0.0.1:8765/mcp") as ds4:
+    configs = [1024, 2048, 4096, 8192, 16384]
+    results = []
+    for size in configs:
+        await ds4.call_tool("set_config", {"kv_cache_size": size})
+        for suite in ["coding_smoke", "agentic_smoke"]:
+            run = await ds4.call_tool("run_benchmark", {"suite": suite, "label": f"kv_{size}_{suite}"})
+            results.append({"config": {"kv_cache_size": size}, "run": run})
+    # Pick winner, apply, log
+    winner = max(results, key=lambda r: r["run"]["tok_s"])
+    await ds4.call_tool("set_config", {"kv_cache_size": winner["config"]["kv_cache_size"]})
+```
+
+The agent reads `telemetry://stream` between runs to confirm DS4 has fully reloaded and KV cache usage has settled before starting the next benchmark — avoiding false comparisons from warmup vs. steady state.
+
+### Sweep matrix recommendations
+
+| Goal                  | Sweep parameter      | Hold constant              | Metric to optimize     |
+|-----------------------|----------------------|----------------------------|------------------------|
+| Throughput            | `kv_cache_size`      | `batch_size`, `prefill_chunk` | `tok_s`              |
+| Latency               | `prefill_chunk`      | `kv_cache_size`            | `p95_latency_ms`       |
+| Memory ceiling        | `kv_cache_size`      | `batch_size`               | `peak_rss_gb`          |
+| Tool-call reliability | `temperature`        | seed, prompt template      | `pass_rate`            |
+
+### Comparing apples-to-apples
+
+- Always run the same **suite** and **label** tag when comparing configs.
+- The dashboard stores config fingerprint + commit hash + run timestamp in `benchmarks/history.json`.
+- Use the *Compare* view to overlay two runs; differences in prompt distribution show up as pass-rate variance, not as a config effect.
+- For repeated runs, the runner uses a deterministic seed where the underlying task supports it.
+
+### Regression detection
+
+- The historical chart plots tok/s and pass rate over time.
+- A drop > 5% on a previously green config is the first signal that a recent change regressed performance.
+- Click any historical point to load that exact config back into the editor (read-only) for inspection.
+
+---
+
 ## Quick Start
 
 ### Prerequisites
