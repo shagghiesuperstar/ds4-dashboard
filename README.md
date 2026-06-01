@@ -18,27 +18,28 @@ A cyberpunk-themed web dashboard and MCP server for DS4 (DeepSeek V4 Flash infer
 - Real-time memory gauge with color-coded accretion disk
 
 ### 📡 Live Telemetry
-- Tokens per second, prefill speed, KV cache usage
-- GPU/CPU utilization, die temperatures
-- Memory pressure and swap monitoring
+- `tok_s`, `prefill_tok_s` / `prefill_tokens_sec`, `prefill_latency_ms`
+- `kv_cache` (budget_bytes / used_bytes)
+- GPU/CPU utilization, die temperatures via `sysctl`/`powermetrics`
+- Memory pressure (`pressure_level`: normal/warning/critical) and swap usage (`swap_bytes`)
 - 2-second polling interval with smooth updates
 
 ### ⚙️ Auto-Discovering Configuration
-- Parses DS4 binary help output and telemetry schema
+- Parses DS4 binary `--help` output and merges with built-in schema
 - Dynamically renders config editor for any discovered option
-- Apply changes with one click; launchd integration restarts DS4 automatically
+- Apply changes with one click; `launchctl kickstart` restarts DS4 automatically when needed
 
 ### 🧪 One-Click Benchmarks
-- Predefined suites: smoke test, full coding eval, agentic endurance
+- Suites: `quick_smoke`, `full_coding`, `agentic_smoke`, `agentic_full`, `agentic_endurance`
 - Coding + multi-turn tool-calling scenarios
 - Historical results chart with Chart.js
-- Side-by-side compare mode
+- Compare panel: runs two config profiles back-to-back with automatic restoration via `POST /api/benchmarks/compare`
 
 ### 🔌 MCP Server (Dual Transport)
 - stdio transport for Claude Code, Codex, Cursor
 - HTTP/SSE transport for agents and web clients
-- Tools: status, metrics, config, benchmark, update, schema
-- Subscribable resources for live telemetry streams
+- Tools: `get_status`, `get_metrics`, `set_config`, `get_config`, `run_benchmark`, `restart_ds4`, `update_ds4`, `rollback_ds4`, `get_schema`
+- Resources (read-only): `telemetry://stream`, `config://current`, `benchmarks://results`
 
 ### 🚀 Launchd Integration (macOS)
 - Auto-start DS4 and dashboard at login
@@ -49,67 +50,70 @@ A cyberpunk-themed web dashboard and MCP server for DS4 (DeepSeek V4 Flash infer
 
 ## A/B Configuration Testing & Benchmarking
 
-A primary use case for this dashboard is **systematic A/B testing of DS4 configurations**. The workflow below is designed for the DS4 maintainer iterating on inference performance.
+The dashboard supports systematic A/B testing of DS4 configurations through **config profiles** (YAML files in `config-profiles/`) and the `POST /api/benchmarks/compare` endpoint.
 
-### Why the dashboard helps
+### How it actually works
 
-- **Zero-friction config changes** — every discovered flag is one click away in the UI; no hand-editing YAMLs or restarting manually.
-- **Tracked history** — every config snapshot is timestamped, every benchmark run is recorded with its config fingerprint.
-- **Side-by-side compare mode** — pick two benchmark runs and see tok/s, p95, pass rate, KV cache impact, and memory pressure overlaid.
-- **MCP-driven automation** — let an agent sweep a parameter grid overnight and report winners.
+1. **Config profiles** are named YAML files containing a `label`, optional `description`/`tags`/`hardware_hint`, and a dict of `overrides`. They are created/imported via the UI or `POST /api/config-profiles/import`.
+2. **The Compare panel** (in `static/index.html`) lets you select two saved profiles as A and B plus a benchmark suite and iteration count.
+3. **Behind the scenes**, `build_benchmark_comparison()` (dashboard.py:525) does the following:
+   - Snapshots the current `config_overrides`
+   - Applies profile A via `apply_benchmark_profile`, runs the suite (results tagged with `compare_label = "<label>:<suite_id>"`), records in `_last_results` ring buffer (20 entries) and `history.json`
+   - Restores the snapshot
+   - Applies profile B, runs the suite, records
+   - Always restores the original overrides in a `finally` block; if any key required a restart, it calls `restart_ds4`
+4. **The response** contains `config_a`, `config_b`, `run_a`, `run_b`, `diffs` (per-metric `metric_diff` objects with `a`, `b`, `delta`, `higher_is_better`, `improved`), and `task_diffs`.
 
-### A/B workflow (manual)
+### A/B workflow (manual, in the UI)
 
-1. **Baseline** — apply your current config. Run a benchmark suite (e.g. *Full Coding Eval*). Note the tok/s, p95, pass rate.
-2. **Candidate** — change exactly one parameter (e.g. `--kv-cache-size`). Click *Apply* — the dashboard calls `launchctl kickstart` and DS4 reloads in seconds.
-3. **Re-run** — execute the same suite. The run is auto-tagged with the config fingerprint.
-4. **Compare** — open *Benchmark History → Compare Mode* → select baseline + candidate rows → see the delta inline.
-5. **Promote or revert** — click *Revert to baseline* in the config panel, or save the candidate as the new default.
+1. Save current overrides as a profile (e.g. `baseline`).
+2. Change one or more discovered options in the Configuration panel and save as `candidate`.
+3. Open the Compare panel, select `baseline` as A and `candidate` as B, choose a suite (e.g. `quick_smoke`), set iterations (1–10).
+4. Click **Compare**. Both runs execute with automatic restore. Diffs appear in the panel.
+5. The live DS4 config is restored to its pre-comparison state.
 
-### A/B workflow (automated, via MCP)
+### A/B workflow (programmatic, via HTTP)
 
-When the MCP server is exposed, an agent can sweep a parameter grid overnight:
+There is no MCP tool for comparison or profile management. Use the HTTP API:
 
-```python
-# Example: agent-driven kv-cache size sweep
-from mcp import Client
+```bash
+# 1. Import a profile from YAML (repeat for each profile you want to test)
+curl -X POST http://127.0.0.1:8765/api/config-profiles/import \
+  -H "Content-Type: application/json" \
+  -d @profile.yaml
 
-async with Client("http://127.0.0.1:8765/mcp") as ds4:
-    configs = [1024, 2048, 4096, 8192, 16384]
-    results = []
-    for size in configs:
-        await ds4.call_tool("set_config", {"kv_cache_size": size})
-        for suite in ["coding_smoke", "agentic_smoke"]:
-            run = await ds4.call_tool("run_benchmark", {"suite": suite, "label": f"kv_{size}_{suite}"})
-            results.append({"config": {"kv_cache_size": size}, "run": run})
-    # Pick winner, apply, log
-    winner = max(results, key=lambda r: r["run"]["tok_s"])
-    await ds4.call_tool("set_config", {"kv_cache_size": winner["config"]["kv_cache_size"]})
+# 2. Run a comparison. The overrides keys are whatever the auto-discovered
+#    schema provides (use GET /api/config/schema to list them).
+curl -X POST http://127.0.0.1:8765/api/benchmarks/compare \
+  -H "Content-Type: application/json" \
+  -d '{
+    "suite": "quick_smoke",
+    "iterations": 3,
+    "config_a": {"label": "baseline", "overrides": {}},
+    "config_b": {"label": "candidate", "overrides": {}}
+  }'
 ```
 
-The agent reads `telemetry://stream` between runs to confirm DS4 has fully reloaded and KV cache usage has settled before starting the next benchmark — avoiding false comparisons from warmup vs. steady state.
-
-### Sweep matrix recommendations
-
-| Goal                  | Sweep parameter      | Hold constant              | Metric to optimize     |
-|-----------------------|----------------------|----------------------------|------------------------|
-| Throughput            | `kv_cache_size`      | `batch_size`, `prefill_chunk` | `tok_s`              |
-| Latency               | `prefill_chunk`      | `kv_cache_size`            | `p95_latency_ms`       |
-| Memory ceiling        | `kv_cache_size`      | `batch_size`               | `peak_rss_gb`          |
-| Tool-call reliability | `temperature`        | seed, prompt template      | `pass_rate`            |
+The response includes `run_a`, `run_b`, `diffs` (per-metric `a`/`b`/`delta`/`higher_is_better`/`improved`), and `task_diffs`.
 
 ### Comparing apples-to-apples
 
-- Always run the same **suite** and **label** tag when comparing configs.
-- The dashboard stores config fingerprint + commit hash + run timestamp in `benchmarks/history.json`.
-- Use the *Compare* view to overlay two runs; differences in prompt distribution show up as pass-rate variance, not as a config effect.
-- For repeated runs, the runner uses a deterministic seed where the underlying task supports it.
+- Use the same `suite` and `iterations` for every run in a sweep.
+- Results are tagged with `compare_label` for grouping.
+- `history.json` records: `timestamp`, `suite`, `suite_name`, `compare_label`, `tok_s` (avg), `pass_rate`, and grouped per-task `duration_s`/`tok_s`/`passed`/`total`.
+- The full `config_overrides` for a run is stored only in the in-memory `_last_results` ring buffer (last 20 runs). It is **not** persisted to `history.json`.
+- Original overrides are always restored after a comparison.
 
-### Regression detection
+### Limitations (verified)
 
-- The historical chart plots tok/s and pass rate over time.
-- A drop > 5% on a previously green config is the first signal that a recent change regressed performance.
-- Click any historical point to load that exact config back into the editor (read-only) for inspection.
+- **No config fingerprinting or commit hash.** `history.json` does not store the full override snapshot or DS4 binary version. Only `compare_label` and summary metrics are recorded.
+- **No deterministic seed.** Temperature is fixed per suite, but task ordering and generation are not seeded.
+- **No KV cache / memory pressure in compare diffs.** The `diffs` object covers only `tok_s_avg`, `latency_p50_seconds`, `latency_p95_seconds`, `pass_rate`, `duration_seconds`, and `output_tokens`. Use `telemetry://stream` or `GET /metrics` separately for memory analysis.
+- **No "click history to reload config" feature.** The history chart is read-only. Reproducing a past run requires the original profile YAML.
+- **MCP resources are read-only.** `telemetry://stream`, `config://current`, and `benchmarks://results` support only `resources/read`. No subscription mechanism is implemented.
+- **Two different compare mechanisms exist:**
+  - `POST /api/benchmarks/compare` → runs fresh A/B via `build_benchmark_comparison` (preferred for testing).
+  - `GET /api/benchmarks/compare?baseline=...&target=...` → diffs two existing runs from the in-memory ring buffer via `BenchmarkRunner.compare()`.
 
 ---
 
@@ -159,11 +163,11 @@ bash scripts/install-launchd.sh --uninstall
 dashboard.py          FastAPI + MCP server (port 8765)
 static/               Frontend (HTML + JS + CSS)
 bridge/
-  engine_client.py    DS4 telemetry client
-  system_metrics.py   macOS GPU/CPU/temp via sysctl/powermetrics
-  config_manager.py   Auto-discover + read/write DS4 config
-benchmarks/           Coding + agentic benchmark suites
-mcp/                  MCP server (stdio + SSE)
+  engine_client.py    DS4 telemetry client + KV/prefill parsing
+  system_metrics.py   macOS GPU/CPU/temp/swap/pressure via sysctl/powermetrics
+  config_manager.py   Auto-discover + read/write DS4 config + restart
+benchmarks/           Coding + agentic benchmark suites + runner
+mcp/                  MCP server (stdio + SSE) — 9 tools, 3 read-only resources
 updater/              GitHub release downloader + verifier
 ```
 
@@ -171,15 +175,17 @@ updater/              GitHub release downloader + verifier
 
 ## MCP Tools
 
-| Tool            | Description                              |
-|-----------------|------------------------------------------|
-| `get_status`    | DS4 uptime, model, port                  |
-| `get_metrics`   | Live telemetry snapshot                  |
-| `set_config`    | Apply a config key=value                 |
-| `get_config`    | Read current config                      |
-| `run_benchmark` | Execute a named benchmark suite          |
-| `update_ds4`    | Download + verify + swap binary          |
-| `get_schema`    | List all auto-discovered config options  |
+| Tool            | Description                                      |
+|-----------------|--------------------------------------------------|
+| `get_status`    | DS4 uptime, model, port                          |
+| `get_metrics`   | Live telemetry snapshot (tok_s, prefill, KV, etc.) |
+| `set_config`    | Apply a config key=value                         |
+| `get_config`    | Read current dashboard overrides                 |
+| `run_benchmark` | Execute a named benchmark suite                  |
+| `restart_ds4`   | Trigger launchd restart of DS4                   |
+| `update_ds4`    | Download + verify + swap binary                  |
+| `rollback_ds4`  | Roll back to previous binary                     |
+| `get_schema`    | List all auto-discovered config options          |
 
 ---
 
@@ -199,8 +205,8 @@ The dashboard reads these environment variables (or uses sensible defaults):
 ## Development
 
 ```bash
-# Run tests
-pytest
+# Run tests (uses stdlib unittest)
+make test
 
 # Type check / lint
 ruff check .

@@ -23,7 +23,7 @@ class DashboardResourceRegistry:
             {
                 "uri": "telemetry://stream",
                 "name": "Live Telemetry Stream",
-                "description": "Subscribable status and metrics stream exposed over SSE.",
+                "description": "Current telemetry snapshot (tok_s, prefill, kv_cache, pressure, swap).",
                 "mimeType": "application/json",
             },
             {
