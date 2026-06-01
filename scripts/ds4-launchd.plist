@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.dwarfstar.ds4</string>
+    <string>com.ds4.engine</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/m4mbp/ds4/ds4-server</string>
+        <string>DS4_BINARY_PLACEHOLDER</string>
         <string>--port</string>
         <string>8001</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/m4mbp/ds4</string>
+    <string>DS4_HOME_PLACEHOLDER</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>

@@ -1,4 +1,4 @@
-# Operation Dwarfstar — Phase 3
+# DS4 Dashboard — Phase 3
 
 ## Current State
 Phase 1 and 2 are complete. Dashboard runs at port 8765 with DS4 on port 8001. All existing Python files pass syntax checks.

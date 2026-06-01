@@ -1,433 +1,242 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
-    <title>DS4 Dwarfstar Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css" />
-    <style>
-      /* ── SVG animation rules (inlined for Mobile Safari WebKit compat) ── */
-      .dwarfstar-logo .core {
-        animation: core-pulse 3s cubic-bezier(0.42, 0, 0.58, 1) infinite;
-        transform-box: fill-box;
-        transform-origin: center;
-      }
-      .dwarfstar-logo .corona { animation: corona-flare 4s ease-in-out infinite; }
-      .dwarfstar-logo .starfield-deep circle { animation: star-twinkle 6s ease-in-out infinite; }
-      .dwarfstar-logo .starfield-near circle { animation: star-twinkle 4s ease-in-out infinite reverse; }
-      .dwarfstar-logo .lensing-rings circle { animation: ring-ripple 5s ease-in-out infinite; }
-      .dwarfstar-logo .accretion-disk {
-        animation: disk-drift 10s linear infinite;
-        transform-box: fill-box;
-        transform-origin: center;
-      }
-      .dwarfstar-logo .disk-inner { animation: disk-drift 7s linear infinite reverse; }
-      .dwarfstar-logo .particle-trail { animation: particle-trail-flow 4s ease-in-out infinite; }
-      .dwarfstar-logo .particle { animation: particle-orbit 4.8s ease-in-out infinite; }
-      .dwarfstar-logo[data-state="running"] .data-pulse-ring {
-        animation: data-pulse var(--tok-pulse-duration, 2s) ease-in-out infinite;
-      }
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  </head>
-  <body>
-    <div class="starfield-layer" aria-hidden="true"></div>
-    <div class="app-shell">
-      <header class="topbar" aria-label="Dashboard header">
-        <a class="brand" href="/" aria-label="DS4 dashboard home">
-          <svg class="dwarfstar-logo" viewBox="0 0 160 160" role="img" aria-labelledby="logo-title logo-desc" data-state="unknown">
-            <title id="logo-title">White dwarf telemetry logo</title>
-            <desc id="logo-desc">A pulsing white dwarf core with gravitational lensing, accretion disk, and telemetry-driven distortion.</desc>
-            <defs>
-              <!-- Core emission gradient -->
-              <radialGradient id="core-glow" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stop-color="#ffffff" />
-                <stop offset="30%" stop-color="#dffaff" />
-                <stop offset="60%" stop-color="#00d4ff" stop-opacity="0.50" />
-                <stop offset="85%" stop-color="#00ff41" stop-opacity="0.15" />
-                <stop offset="100%" stop-color="#00ff41" stop-opacity="0" />
-              </radialGradient>
-              <!-- Accretion disk gradient — inner hot (white→cyan), outer cool (green→red fringe) -->
-              <linearGradient id="disk-glow" x1="0%" x2="100%" y1="50%" y2="50%">
-                <stop offset="0%" stop-color="#00ff41" stop-opacity="0.06" />
-                <stop offset="22%" stop-color="#00ff41" stop-opacity="0.55" />
-                <stop offset="38%" stop-color="#dffaff" stop-opacity="0.90" />
-                <stop offset="50%" stop-color="#ffffff" />
-                <stop offset="62%" stop-color="#00d4ff" stop-opacity="0.85" />
-                <stop offset="78%" stop-color="#ff9500" stop-opacity="0.40" />
-                <stop offset="100%" stop-color="#ff003b" stop-opacity="0.12" />
-              </linearGradient>
-              <!-- Inner disk gradient — hotter, more intense -->
-              <linearGradient id="disk-inner" x1="0%" x2="100%" y1="50%" y2="50%">
-                <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
-                <stop offset="35%" stop-color="#dffaff" stop-opacity="0.35" />
-                <stop offset="50%" stop-color="#ffffff" stop-opacity="0.60" />
-                <stop offset="65%" stop-color="#00d4ff" stop-opacity="0.30" />
-                <stop offset="100%" stop-color="#00ff41" stop-opacity="0" />
-              </linearGradient>
-              <!-- Blur filter for corona and shadow -->
-              <filter id="logo-blur">
-                <feGaussianBlur stdDeviation="3" />
-              </filter>
-              <!-- Stronger blur for outer glow -->
-              <filter id="logo-glow">
-                <feGaussianBlur stdDeviation="6" />
-              </filter>
-              <!-- Gravitational lensing distortion — displacement map driven by core gravity -->
-              <filter id="lensing-distort" x="-50%" y="-50%" width="200%" height="200%">
-                <feTurbulence type="fractalNoise" baseFrequency="0.010" numOctaves="2" seed="42" result="noise" />
-                <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.03 0" in="noise" result="displacement" />
-                <feDisplacementMap in="SourceGraphic" in2="displacement" scale="2.2" xChannelSelector="R" yChannelSelector="G" />
-              </filter>
-            </defs>
-            <!-- Background starfield — two depth layers -->
-            <g class="starfield starfield-deep">
-              <circle cx="27" cy="33" r="1.1" />
-              <circle cx="132" cy="29" r="1.4" />
-              <circle cx="142" cy="103" r="0.9" />
-              <circle cx="29" cy="124" r="1.2" />
-              <circle cx="53" cy="19" r="0.7" />
-              <circle cx="115" cy="135" r="1" />
-              <circle cx="78" cy="22" r="0.5" />
-              <circle cx="146" cy="55" r="0.6" />
-              <circle cx="12" cy="90" r="0.8" />
-              <circle cx="104" cy="148" r="0.4" />
-              <circle cx="48" cy="145" r="0.6" />
-              <circle cx="135" cy="140" r="0.5" />
-            </g>
-            <g class="starfield starfield-near">
-              <circle cx="64" cy="40" r="0.9" />
-              <circle cx="96" cy="38" r="0.8" />
-              <circle cx="44" cy="70" r="0.7" />
-              <circle cx="118" cy="68" r="1" />
-              <circle cx="38" cy="110" r="0.6" />
-              <circle cx="124" cy="112" r="0.9" />
-            </g>
-            <!-- Gravitational lensing rings — Einstein rings at increasing radii -->
-            <g class="lensing-rings">
-              <circle cx="80" cy="80" r="62" />
-              <circle cx="80" cy="80" r="48" />
-              <circle cx="80" cy="80" r="34" />
-              <circle cx="80" cy="80" r="22" />
-            </g>
-            <!-- Accretion disk — outer cooler disk -->
-            <ellipse class="accretion-disk disk-shadow" cx="80" cy="80" rx="68" ry="15" />
-            <ellipse class="accretion-disk" cx="80" cy="80" rx="62" ry="11" />
-            <!-- Inner accretion disk — hotter region near the core -->
-            <ellipse class="accretion-disk disk-inner" cx="80" cy="80" rx="36" ry="7" />
-            <g class="accretion-particles">
-              <path class="particle-trail trail-a" d="M18 80 C45 61 105 61 142 80" />
-              <path class="particle-trail trail-b" d="M27 88 C56 102 109 100 133 83" />
-              <path class="particle-trail trail-c" d="M35 74 C62 66 101 68 124 78" />
-              <circle class="particle particle-a" cx="45" cy="68" r="1.4" />
-              <circle class="particle particle-b" cx="112" cy="93" r="1.1" />
-              <circle class="particle particle-c" cx="96" cy="70" r="0.9" />
-            </g>
-            <!-- Corona — diffuse glowing envelope -->
-            <circle class="corona" cx="80" cy="80" r="30" />
-            <!-- Core — white-hot degenerate matter -->
-            <circle class="core" cx="80" cy="80" r="14" />
-            <!-- Telemetry data-pulse ring (visible when running) -->
-            <circle class="data-pulse-ring" cx="80" cy="80" r="72" />
-          </svg>
-          <span>
-            <strong>DS4</strong>
-            <span>Dwarfstar Control</span>
-          </span>
-        </a>
-        <div class="topbar-actions">
-          <span class="endpoint-pill" id="endpoint-pill">127.0.0.1:8001</span>
-          <div class="status-chip" id="status-chip" data-state="unknown">
-            <span class="status-dot" aria-hidden="true"></span>
-            <span id="state-label">UNKNOWN</span>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>DS4 Dwarfstar Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css?v=2">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    html { height: 100%; overflow: hidden; }
+    body { height: 100%; overflow: hidden; margin: 0; }
+    .app { height: 100%; overflow-y: auto; }
+    .grid { overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-icon">◆</span>
+        <span class="brand-text"><strong>DS4</strong> Dwarfstar Control</span>
+      </div>
+      <div class="topbar-info">
+        <span class="endpoint" id="endpoint">127.0.0.1:8001</span>
+        <span class="status-badge" id="status-badge" data-state="unknown">
+          <span class="status-dot"></span>
+          <span id="state-label">UNKNOWN</span>
+        </span>
+      </div>
+    </header>
+
+    <main class="grid">
+      <!-- Telemetry hero -->
+      <section class="panel hero" id="panel-hero">
+        <div class="panel-head">
+          <span class="panel-label">Live Engine Core</span>
+          <h1 class="panel-title">Dwarfstar Telemetry</h1>
+        </div>
+        <div class="hero-metrics">
+          <div class="metric"><span class="m-label">Tokens/s</span><strong id="tokens-sec">--</strong></div>
+          <div class="metric"><span class="m-label">Prefill</span><strong id="prefill-sec">--</strong></div>
+          <div class="metric"><span class="m-label">Context</span><strong id="context-window">--</strong></div>
+          <div class="metric"><span class="m-label">KV Cache</span><strong id="kv-cache">--</strong></div>
+          <div class="metric"><span class="m-label">Shaders</span><strong id="shader-count">--</strong></div>
+        </div>
+        <div class="signal-line" id="status-message">Waiting for first telemetry pulse.</div>
+      </section>
+
+      <!-- System monitoring -->
+      <section class="panel" id="panel-monitoring">
+        <div class="panel-head">
+          <span class="panel-label">System Cushion</span>
+          <h2 class="panel-title">Monitoring</h2>
+          <span class="panel-accent" id="memory-pressure">--</span>
+        </div>
+
+        <div class="gauge-stack">
+          <div class="gauge">
+            <div class="gauge-row"><span>Memory</span><strong id="memory-used">--</strong></div>
+            <div class="gauge-track"><div class="gauge-fill" id="memory-fill"></div></div>
+            <div class="gauge-labels">
+              <span id="memory-total">Total --</span>
+              <span id="memory-free">Free --</span>
+              <span id="swap-used">Swap --</span>
+            </div>
+          </div>
+          <div class="gauge">
+            <div class="gauge-row"><span>KV Cache</span><strong id="kv-label">--</strong></div>
+            <div class="gauge-track"><div class="gauge-fill kv-fill" id="kv-fill"></div></div>
+            <div class="gauge-labels">
+              <span id="kv-total">Total --</span>
+              <span id="kv-path">--</span>
+              <span id="process-rss">RSS --</span>
+            </div>
           </div>
         </div>
-      </header>
 
-      <main class="dashboard-grid">
-        <section class="hero-panel panel-span-2" aria-labelledby="status-title">
-          <div class="section-heading">
-            <p>Live Engine Core</p>
-            <h1 id="status-title">Dwarfstar Telemetry</h1>
-          </div>
-          <div class="metric-strip" aria-label="Core status metrics">
-            <article>
-              <span>Tokens/sec</span>
-              <strong id="tokens-sec">--</strong>
-            </article>
-            <article>
-              <span>Prefill</span>
-              <strong id="prefill-sec">--</strong>
-            </article>
-            <article>
-              <span>Context</span>
-              <strong id="context-window">--</strong>
-            </article>
-            <article>
-              <span>KV Cache</span>
-              <strong id="kv-cache">--</strong>
-            </article>
-            <article>
-              <span>Shaders</span>
-              <strong id="shader-count">--</strong>
-            </article>
-          </div>
-          <div class="signal-line" id="status-message">Waiting for first telemetry pulse.</div>
-        </section>
+        <dl class="metric-list">
+          <div><dt>CPU</dt><dd id="cpu-usage">--</dd></div>
+          <div><dt>GPU</dt><dd id="gpu-usage">--</dd></div>
+          <div><dt>CPU Temp</dt><dd id="cpu-temp">--</dd></div>
+          <div><dt>GPU Temp</dt><dd id="gpu-temp">--</dd></div>
+          <div><dt>Process</dt><dd id="process-id">--</dd></div>
+          <div><dt>Uptime</dt><dd id="uptime">--</dd></div>
+        </dl>
 
-        <section class="panel monitoring-panel" aria-labelledby="monitoring-title">
-          <div class="panel-header">
-            <div>
-              <p>System Cushion</p>
-              <h2 id="monitoring-title">Monitoring</h2>
-            </div>
-            <span class="panel-accent" id="memory-pressure">--</span>
-          </div>
+        <div class="chart-grid">
+          <canvas id="tokens-chart" width="520" height="132"></canvas>
+          <canvas id="system-chart" width="520" height="132"></canvas>
+        </div>
+      </section>
 
-          <div class="gauge-stack">
-            <div class="gauge" aria-label="Memory usage">
-              <div class="gauge-row">
-                <span>Memory</span>
-                <strong id="memory-used">--</strong>
-              </div>
-              <div class="gauge-track">
-                <div class="gauge-fill" id="memory-fill"></div>
-              </div>
-              <div class="gauge-labels">
-                <span id="memory-total">Total --</span>
-                <span id="memory-free">Free --</span>
-                <span id="swap-used">Swap --</span>
-              </div>
+      <!-- Config -->
+      <section class="panel" id="panel-config">
+        <div class="panel-head">
+          <span class="panel-label">Configuration Plane</span>
+          <h2 class="panel-title">Config</h2>
+          <button class="icon-btn" id="refresh-config" title="Refresh config">⟳</button>
+        </div>
+        <div class="config-layout">
+          <pre class="json-view" id="config-json" tabindex="0">{}</pre>
+          <div class="schema-col">
+            <div class="schema-toolbar">
+              <span class="panel-accent" id="schema-count">0 keys</span>
             </div>
-            <div class="gauge kv-gauge" aria-label="KV cache usage">
-              <div class="gauge-row">
-                <span>KV Cache</span>
-                <strong id="kv-label">--</strong>
-              </div>
-              <div class="gauge-track">
-                <div class="gauge-fill kv-fill" id="kv-fill"></div>
-              </div>
-              <div class="gauge-labels">
-                <span id="kv-total">Total --</span>
-                <span id="kv-path">--</span>
-                <span id="process-rss">RSS --</span>
-              </div>
+            <div class="schema-list" id="schema-list"></div>
+            <div class="schema-edit-bar" id="schema-edit-bar" hidden>
+              <input type="text" id="config-edit-key" placeholder="key" spellcheck="false">
+              <input type="text" id="config-edit-value" placeholder="value" spellcheck="false">
+              <button id="config-save-btn">Save</button>
+              <button id="config-apply-btn">Apply & Restart</button>
+            </div>
+            <div class="restart-bar">
+              <button id="restart-ds4-btn">Restart DS4</button>
+              <span id="restart-status"></span>
             </div>
           </div>
+        </div>
+      </section>
 
-          <dl class="metric-list">
-            <div>
-              <dt>CPU</dt>
-              <dd id="cpu-usage">--</dd>
-            </div>
-            <div>
-              <dt>GPU</dt>
-              <dd id="gpu-usage">--</dd>
-            </div>
-            <div>
-              <dt>CPU Temp</dt>
-              <dd id="cpu-temp">--</dd>
-            </div>
-            <div>
-              <dt>GPU Temp</dt>
-              <dd id="gpu-temp">--</dd>
-            </div>
-            <div>
-              <dt>Process</dt>
-              <dd id="process-id">--</dd>
-            </div>
-            <div>
-              <dt>Uptime</dt>
-              <dd id="uptime">--</dd>
-            </div>
-          </dl>
+      <!-- Config Profiles -->
+      <section class="panel" id="panel-profiles">
+        <div class="panel-head">
+          <span class="panel-label">Config Profiles</span>
+          <h2 class="panel-title">Profiles</h2>
+          <span class="panel-accent" id="profile-count">0</span>
+        </div>
+        <form class="profiles-toolbar" id="profile-create-form">
+          <input id="profile-label-input" type="text" placeholder="Profile label" required spellcheck="false">
+          <input id="profile-description-input" type="text" placeholder="Optional note" spellcheck="false">
+          <input id="profile-tags-input" type="text" placeholder="tag, tag" spellcheck="false">
+          <button id="export-profile-btn" type="submit">Export</button>
+          <button id="import-profile-btn" type="button">Import</button>
+          <input type="file" id="profile-file-input" accept=".yaml,.yml" hidden>
+        </form>
+        <div class="profiles-list" id="profiles-list">
+          <div class="profiles-empty">No saved profiles.</div>
+        </div>
+      </section>
 
-          <div class="chart-grid">
-            <canvas id="tokens-chart" width="520" height="132" aria-label="Tokens per second chart"></canvas>
-            <canvas id="system-chart" width="520" height="132" aria-label="System utilization chart"></canvas>
+      <!-- Models -->
+      <section class="panel" id="panel-models">
+        <div class="panel-head">
+          <span class="panel-label">Model Selector</span>
+          <h2 class="panel-title">Models</h2>
+          <span class="panel-accent" id="model-summary">--</span>
+        </div>
+        <div class="model-layout">
+          <div class="model-current">
+            <strong id="current-model-name">--</strong>
+            <dl class="model-stats">
+              <div><dt>tok/s</dt><dd id="model-tok-s">--</dd></div>
+              <div><dt>prefill</dt><dd id="model-prefill">--</dd></div>
+              <div><dt>latency</dt><dd id="model-latency">--</dd></div>
+              <div><dt>calls</dt><dd id="model-calls">--</dd></div>
+            </dl>
           </div>
-        </section>
+          <div class="model-selector">
+            <select id="model-select" aria-label="Available GGUF models"></select>
+            <button id="switch-model-btn">Switch & Restart</button>
+            <div class="model-desc" id="model-option-details"></div>
+          </div>
+        </div>
+      </section>
 
-        <section class="panel config-panel" aria-labelledby="config-title">
-          <div class="panel-header">
-            <div>
-              <p>Configuration Plane</p>
-              <h2 id="config-title">Config</h2>
-            </div>
-            <button class="icon-button" id="refresh-config" type="button" title="Refresh config" aria-label="Refresh config">
-              <span aria-hidden="true">&#8635;</span>
-            </button>
+      <!-- Benchmarks -->
+      <section class="panel" id="panel-benchmarks">
+        <div class="panel-head">
+          <span class="panel-label">One-Click Eval</span>
+          <h2 class="panel-title">Benchmarks</h2>
+          <span class="panel-accent" id="benchmark-summary">idle</span>
+        </div>
+        <div class="bench-controls">
+          <select id="benchmark-suite"></select>
+          <input id="benchmark-label" type="text" placeholder="compare label" spellcheck="false">
+          <button id="run-benchmark">Run</button>
+        </div>
+        <div class="bench-compare">
+          <div class="compare-row">
+            <select id="compare-config-a"></select>
+            <select id="compare-config-b"></select>
+            <select id="compare-suite"></select>
+            <button id="compare-benchmarks">Compare</button>
           </div>
-          <div class="config-layout">
-            <pre class="json-viewer" id="config-json" tabindex="0">{}</pre>
-            <div class="schema-column">
-              <div class="schema-toolbar">
-                <span class="panel-accent" id="schema-count">0 keys</span>
-              </div>
-              <div class="schema-list" id="schema-list"></div>
-              <div class="schema-editor-bar" id="schema-editor-bar" hidden>
-                <input type="text" id="config-edit-key" placeholder="key" spellcheck="false" />
-                <input type="text" id="config-edit-value" placeholder="value" spellcheck="false" />
-                <button id="config-save-btn" type="button">Save</button>
-                <button id="config-apply-btn" type="button">Apply &amp; Restart</button>
-              </div>
-              <div class="restart-bar">
-                <button id="restart-ds4-btn" type="button">Restart DS4</button>
-                <span id="restart-status" class="restart-status"></span>
-              </div>
-            </div>
-          </div>
-        </section>
+          <div class="compare-cards" id="compare-cards"></div>
+          <div class="compare-status" id="compare-status">Select two configs to compare.</div>
+        </div>
+        <div class="bench-results" id="bench-results"></div>
+        <div class="compare-results" id="compare-results"></div>
+        <div class="bench-history">
+          <h3>Benchmark History</h3>
+          <span id="bench-history-status">No history loaded.</span>
+          <canvas id="benchmark-history-chart" height="180"></canvas>
+        </div>
+      </section>
 
-        <section class="panel config-profiles-panel" aria-labelledby="config-profiles-title">
-          <div class="panel-header">
-            <div>
-              <p>Config Profiles</p>
-              <h2 id="config-profiles-title">Profiles</h2>
-            </div>
-            <span class="panel-accent" id="profile-count">0</span>
+      <!-- MCP -->
+      <section class="panel" id="panel-mcp">
+        <div class="panel-head">
+          <span class="panel-label">Agentic Surface</span>
+          <h2 class="panel-title">MCP</h2>
+          <span class="panel-accent" id="sse-state">SSE idle</span>
+        </div>
+        <div class="mcp-grid">
+          <div>
+            <h3>Tools</h3>
+            <div class="compact-list" id="mcp-tools"></div>
           </div>
-          <form class="profiles-toolbar" id="profile-create-form">
-            <label>
-              <span>Label</span>
-              <input id="profile-label-input" type="text" placeholder="Profile label" required spellcheck="false" />
-            </label>
-            <label>
-              <span>Description</span>
-              <input id="profile-description-input" type="text" placeholder="Optional note" spellcheck="false" />
-            </label>
-            <label>
-              <span>Tags</span>
-              <input id="profile-tags-input" type="text" placeholder="tag, tag" spellcheck="false" />
-            </label>
-            <button id="export-profile-btn" type="submit">Export Current</button>
-            <button id="import-profile-btn" type="button">Import YAML</button>
-            <input type="file" id="profile-file-input" accept=".yaml,.yml" hidden />
-          </form>
-          <div class="profiles-list" id="profiles-list" aria-live="polite">
-            <div class="profiles-empty">No saved profiles. Export current config to create one.</div>
+          <div>
+            <h3>Resources</h3>
+            <div class="compact-list" id="mcp-resources"></div>
           </div>
-        </section>
+        </div>
+        <div class="update-bar">
+          <button id="update-check">Check Release</button>
+          <button id="update-rollback">Rollback</button>
+          <span id="update-result">No release check yet.</span>
+        </div>
+      </section>
 
-        <section class="panel model-panel" aria-labelledby="model-title">
-          <div class="panel-header">
-            <div>
-              <p>Model Selector</p>
-              <h2 id="model-title">Models</h2>
-            </div>
-            <span class="panel-accent" id="model-summary">--</span>
+      <!-- Chat -->
+      <section class="panel" id="panel-chat">
+        <div class="panel-head">
+          <span class="panel-label">Model Chat</span>
+          <h2 class="panel-title">DS4 Chat</h2>
+        </div>
+        <div class="chat-container">
+          <div class="chat-messages" id="chat-messages">
+            <div class="chat-welcome">Chat with the running DS4 model.</div>
           </div>
-          <div class="model-layout">
-            <div class="model-current">
-              <strong id="current-model-name">--</strong>
-              <dl class="model-stats">
-                <div><dt>tok/s</dt><dd id="model-tok-s">--</dd></div>
-                <div><dt>prefill</dt><dd id="model-prefill">--</dd></div>
-                <div><dt>latency</dt><dd id="model-latency">--</dd></div>
-                <div><dt>calls</dt><dd id="model-calls">--</dd></div>
-              </dl>
-            </div>
-            <div class="model-selector">
-              <div class="model-selector-controls">
-                <select id="model-select" aria-label="Available GGUF models"></select>
-                <button id="switch-model-btn" type="button">Switch &amp; Restart</button>
-              </div>
-              <div class="model-option-details" id="model-option-details" aria-live="polite"></div>
-            </div>
+          <div class="chat-input-row">
+            <textarea id="chat-input" rows="2" placeholder="Message DS4..." spellcheck="false"></textarea>
+            <button id="chat-send-btn">Send</button>
           </div>
-        </section>
-
-        <section class="panel benchmark-panel" aria-labelledby="benchmark-title">
-          <div class="panel-header">
-            <div>
-              <p>One-Click Eval</p>
-              <h2 id="benchmark-title">Benchmarks</h2>
-            </div>
-            <span class="panel-accent" id="benchmark-summary">idle</span>
-          </div>
-          <div class="control-row">
-            <select id="benchmark-suite" aria-label="Benchmark suite"></select>
-            <input id="benchmark-label" type="text" placeholder="compare label" spellcheck="false" />
-            <button id="run-benchmark" type="button">Run</button>
-          </div>
-          <div class="benchmark-compare-section" aria-labelledby="benchmark-compare-title">
-            <div class="compare-title-row">
-              <h3 id="benchmark-compare-title">Benchmarks Compare</h3>
-            </div>
-            <div class="compare-controls">
-              <label>
-                <span>Config A</span>
-                <select id="compare-config-a" aria-label="Config A"></select>
-              </label>
-              <label>
-                <span>Config B</span>
-                <select id="compare-config-b" aria-label="Config B"></select>
-              </label>
-              <label>
-                <span>Suite</span>
-                <select id="compare-suite" aria-label="Compare benchmark suite"></select>
-              </label>
-              <button id="compare-benchmarks" type="button">Compare Now</button>
-            </div>
-            <div class="compare-profile-cards" id="compare-profile-cards" aria-live="polite"></div>
-            <div class="compare-run-status" id="compare-run-status">Select two configs to compare.</div>
-          </div>
-          <div class="benchmark-results" id="benchmark-results"></div>
-          <div class="compare-results" id="compare-results"></div>
-          <div class="benchmark-history-section" aria-labelledby="benchmark-history-title">
-            <div class="compare-title-row">
-              <h3 id="benchmark-history-title">Benchmark History</h3>
-              <span id="benchmark-history-status">No history loaded.</span>
-            </div>
-            <canvas id="benchmark-history-chart" height="180" aria-label="Historical benchmark throughput chart"></canvas>
-          </div>
-        </section>
-
-        <section class="panel mcp-panel" aria-labelledby="mcp-title">
-          <div class="panel-header">
-            <div>
-              <p>Agentic Surface</p>
-              <h2 id="mcp-title">MCP</h2>
-            </div>
-            <span class="panel-accent" id="sse-state">SSE idle</span>
-          </div>
-          <div class="mcp-grid">
-            <div>
-              <h3>Tools</h3>
-              <div class="compact-list" id="mcp-tools"></div>
-            </div>
-            <div>
-              <h3>Resources</h3>
-              <div class="compact-list" id="mcp-resources"></div>
-            </div>
-          </div>
-          <div class="update-bar">
-            <button id="update-check" type="button">Check Release</button>
-            <button id="update-rollback" type="button">Rollback</button>
-            <span id="update-result">No release check yet.</span>
-          </div>
-        </section>
-
-        <section class="panel chat-panel" aria-labelledby="chat-title">
-          <div class="panel-header">
-            <div>
-              <p>Model Chat</p>
-              <h2 id="chat-title">DS4 Chat</h2>
-            </div>
-          </div>
-          <div class="chat-container">
-            <div class="chat-messages" id="chat-messages" aria-live="polite">
-              <div class="chat-welcome">Chat with the running DS4 model. Messages use the model's current context.</div>
-            </div>
-            <div class="chat-input-row">
-              <textarea id="chat-input" rows="2" placeholder="Message DS4..." spellcheck="false"></textarea>
-              <button id="chat-send-btn" type="button">Send</button>
-            </div>
-          </div>
-        </section>
-      </main>
-    </div>
-    <script src="/static/dashboard.js" defer></script>
-  </body>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/static/dashboard.js?v=2" defer></script>
+</body>
 </html>

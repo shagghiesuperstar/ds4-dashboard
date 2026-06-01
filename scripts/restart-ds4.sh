@@ -1,12 +1,12 @@
 #!/bin/bash
-# DS4 Dwarfstar Dashboard — launchd restart wrapper
+# DS4 Dashboard — launchd restart wrapper
 # Called by dashboard.py when a config change requires a DS4 restart.
 # Uses launchctl to kickstart the DS4 service, which reloads the plist
 # and re-execs ds4-server with updated flags.
 
 set -euo pipefail
 
-LABEL="${DS4_LAUNCHD_LABEL:-com.dwarfstar.ds4}"
+LABEL="${DS4_LAUNCHD_LABEL:-com.ds4.engine}"
 PORT="${DS4_PRIMARY_PORT:-8001}"
 TARGET="gui/$(id -u)/${LABEL}"
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import httpx
 import json
 import os
 import re
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
-from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -618,6 +619,23 @@ async def api_status() -> Dict[str, Any]:
     return get_status_payload()
 
 
+@app.post("/api/chat/completions")
+async def api_chat_completions(request: Request) -> Dict[str, Any]:
+    """Proxy chat completions to the DS4 engine so the browser doesn't
+    need direct access to port 8001 (fails when dashboard is accessed
+    from another machine over TB5)."""
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=180) as client:
+        resp = await client.post(
+            DS4_COMPLETION_URL,
+            json=body,
+            headers={"Content-Type": "application/json"},
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json()
+
+
 @app.get("/api/metrics")
 async def api_metrics() -> Dict[str, Any]:
     return get_metrics_payload()
@@ -852,7 +870,7 @@ async def api_switch_model(request: SwitchModelRequest) -> Dict[str, Any]:
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Model path does not exist: {path}")
 
-    if not path.suffix in (".gguf", ".ggufv2", ".ggufv3"):
+    if path.suffix not in (".gguf", ".ggufv2", ".ggufv3"):
         raise HTTPException(status_code=400, detail="Not a GGUF file")
 
     result = config_manager.apply_and_restart(

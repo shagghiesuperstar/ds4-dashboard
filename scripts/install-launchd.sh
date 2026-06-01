@@ -3,15 +3,15 @@
 #
 # Usage: bash install-launchd.sh [--uninstall]
 #
-# Installs com.dwarfstar.ds4 as a LaunchAgent so DS4 auto-starts
+# Installs com.ds4.engine as a LaunchAgent so DS4 auto-starts
 # at login and stays alive. The dashboard's config_manager.py will
 # detect launchd and use `launchctl kickstart` for restarts.
 
 set -euo pipefail
 
 PLIST_SRC="$(cd "$(dirname "$0")" && pwd)/ds4-launchd.plist"
-PLIST_DST="$HOME/Library/LaunchAgents/com.dwarfstar.ds4.plist"
-LABEL="com.dwarfstar.ds4"
+PLIST_DST="$HOME/Library/LaunchAgents/com.ds4.engine.plist"
+LABEL="com.ds4.engine"
 
 if [[ "${1:-}" == "--uninstall" ]]; then
     echo "→ Unloading ${LABEL}..."

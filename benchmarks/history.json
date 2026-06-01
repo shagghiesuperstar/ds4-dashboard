@@ -186,5 +186,100 @@
         "total": 1
       }
     ]
+  },
+  {
+    "timestamp": "2026-06-01T00:44:18.102615+00:00",
+    "suite": "agentic_full",
+    "suite_name": "Agentic Full Eval",
+    "label": "Agentic Full Eval",
+    "compare_label": null,
+    "tok_s": 32.835733783526436,
+    "pass_rate": 16.666666666666664,
+    "tasks": [
+      {
+        "name": "Weather Lookup",
+        "duration_s": 5.9024712500104215,
+        "tok_s": 29.140336769907403,
+        "passed": 1,
+        "total": 1
+      },
+      {
+        "name": "Calculator Chain",
+        "duration_s": 5.142469291982707,
+        "tok_s": 32.863589533432325,
+        "passed": 1,
+        "total": 1
+      },
+      {
+        "name": "Code Execution",
+        "duration_s": 4.342801166989375,
+        "tok_s": 31.08592698790032,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Fact Verification",
+        "duration_s": 12.090788166009588,
+        "tok_s": 35.233435087184716,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Planning",
+        "duration_s": 21.184639415994752,
+        "tok_s": 35.875050081153965,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Multi-Turn Incident Triage",
+        "duration_s": 7.726183332997607,
+        "tok_s": 32.098642927721066,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Reasoning Trace Consistency",
+        "duration_s": 10.930908667010954,
+        "tok_s": 34.397872258758596,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Strict JSON Tool Response",
+        "duration_s": 6.283013833977748,
+        "tok_s": 31.9910166221531,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Repository Debug Sequence",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Instruction Priority",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Scheduling Constraints",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      },
+      {
+        "name": "Update Guardrails",
+        "duration_s": 0.0,
+        "tok_s": null,
+        "passed": 0,
+        "total": 1
+      }
+    ]
   }
 ]

@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.dwarfstar.ds4-dashboard</string>
+    <string>com.ds4.dashboard</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/m4mbp/ds4-dashboard/.venv/bin/python</string>
+        <string>PYTHON_PATH_PLACEHOLDER</string>
         <string>-m</string>
         <string>uvicorn</string>
         <string>dashboard:app</string>
@@ -16,13 +16,13 @@
         <string>8765</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/m4mbp/ds4-dashboard</string>
+    <string>PROJECT_PATH_PLACEHOLDER</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PYTHONUNBUFFERED</key>
         <string>1</string>
         <key>DS4_HOME</key>
-        <string>/Users/m4mbp/ds4</string>
+        <string>DS4_HOME_PLACEHOLDER</string>
         <key>DS4_PRIMARY_PORT</key>
         <string>8001</string>
         <key>DS4_TELEM_URL</key>
