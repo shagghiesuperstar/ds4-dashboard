@@ -13,7 +13,11 @@ no_implicit_optional = true
 check_untyped_defs = true
 ignore_missing_imports = false
 
-# Third-party libraries without shipped type stubs.
+# Third-party libraries without shipped type stubs. These are either optional
+# dev-time helpers (uvicorn, fastapi.testclient) or libraries that ship their
+# stubs in a separate types-* package on PyPI (yaml -> types-PyYAML). For the
+# latter, prefer installing types-PyYAML in dev deps; the override here is a
+# safety net so a CI without types-PyYAML installed still type-checks.
 [[tool.mypy.overrides]]
-module = ["uvicorn", "fastapi.testclient"]
+module = ["uvicorn", "fastapi.testclient", "yaml"]
 ignore_missing_imports = true
