@@ -26,7 +26,8 @@ class MCPJsonRpcServer:
     async def handle(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         request_id = payload.get("id")
         method = payload.get("method")
-        params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+        raw_params = payload.get("params")
+        params: Dict[str, Any] = raw_params if isinstance(raw_params, dict) else {}
         try:
             result = await self._dispatch(str(method), params)
             return {"jsonrpc": "2.0", "id": request_id, "result": result}

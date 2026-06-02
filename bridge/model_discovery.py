@@ -144,7 +144,8 @@ def _extract_payload_description(payload: Dict[str, Any]) -> str:
 
 
 def _extract_payload_summary(payload: Dict[str, Any]) -> str:
-    card_data = payload.get("cardData") if isinstance(payload.get("cardData"), dict) else {}
+    raw_card = payload.get("cardData")
+    card_data: Dict[str, Any] = raw_card if isinstance(raw_card, dict) else {}
     parts = []
     base_model = card_data.get("base_model")
     if isinstance(base_model, str) and base_model:

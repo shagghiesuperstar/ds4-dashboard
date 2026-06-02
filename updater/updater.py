@@ -496,7 +496,7 @@ class DS4Updater:
         return time.strftime("%Y%m%d-%H%M%S")
 
     def _backup_entry(self, backup_path: Path) -> Dict[str, Any]:
-        entry = {
+        entry: Dict[str, Any] = {
             "timestamp": self._timestamp(),
             "path": str(backup_path),
             "binary_path": str(self.binary_path),

@@ -486,7 +486,7 @@ def metric_diff(a_value: Any, b_value: Any, *, higher_is_better: bool) -> Dict[s
             "improved": None,
         }
     delta = b_value - a_value
-    improved = delta > 0 if higher_is_better else delta < 0
+    improved: Optional[bool] = delta > 0 if higher_is_better else delta < 0
     if delta == 0:
         improved = None
     return {

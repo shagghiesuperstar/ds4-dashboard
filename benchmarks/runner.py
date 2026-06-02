@@ -253,10 +253,11 @@ class BenchmarkRunner:
         for tid in all_task_ids:
             b = baseline_tasks.get(tid)
             t = target_tasks.get(tid)
+            source = t or b or {}
             task_diffs.append({
                 "task_id": tid,
-                "title": (t or b).get("title"),
-                "kind": (t or b).get("kind"),
+                "title": source.get("title"),
+                "kind": source.get("kind"),
                 "passed": _diff(b["passed"] if b else None, t["passed"] if t else None),
                 "score": _diff(b["score"] if b else None, t["score"] if t else None),
                 "tok_s": _diff(b["tok_s"] if b else None, t["tok_s"] if t else None),

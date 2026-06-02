@@ -4,3 +4,16 @@
 # keeps the path trick working for callers that don't go through pytest.
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+ignore_missing_imports = false
+
+# Third-party libraries without shipped type stubs.
+[[tool.mypy.overrides]]
+module = ["uvicorn", "fastapi.testclient"]
+ignore_missing_imports = true
