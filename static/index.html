@@ -5,21 +5,112 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>DS4 Dwarfstar Dashboard</title>
-  <link rel="stylesheet" href="/static/style.css?v=2">
+  <link rel="stylesheet" href="/static/style.css?v=3">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    html { height: 100%; overflow: hidden; }
-    body { height: 100%; overflow: hidden; margin: 0; }
-    .app { height: 100%; overflow-y: auto; }
-    .grid { overflow: hidden; }
+    /* ── SVG animation rules (inlined for Mobile Safari WebKit compat) ── */
+    .dwarfstar-logo .core { animation: core-pulse 3s cubic-bezier(0.42,0,0.58,1) infinite; transform-box: fill-box; transform-origin: center; }
+    .dwarfstar-logo .corona { animation: corona-flare 4s ease-in-out infinite; }
+    .dwarfstar-logo .accretion-disk { animation: disk-drift 10s linear infinite; transform-box: fill-box; transform-origin: center; }
+    .dwarfstar-logo .disk-inner { animation: disk-drift 7s linear infinite reverse; }
+    .dwarfstar-logo .lensing-rings circle { animation: ring-ripple 5s ease-in-out infinite; }
+    .dwarfstar-logo .starfield-deep circle { animation: star-twinkle 6s ease-in-out infinite; }
+    .dwarfstar-logo .starfield-near circle { animation: star-twinkle 4s ease-in-out infinite reverse; }
+    .dwarfstar-logo .particle-trail { animation: particle-trail-flow 4s ease-in-out infinite; }
+    .dwarfstar-logo .particle { animation: particle-orbit 4.8s ease-in-out infinite; }
+    .dwarfstar-logo[data-state="running"] .data-pulse-ring { animation: data-pulse var(--tok-pulse-duration,2s) ease-in-out infinite; }
+    @keyframes core-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+    @keyframes corona-flare { 0%,100%{opacity:0.6} 50%{opacity:1} }
+    @keyframes disk-drift { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    @keyframes ring-ripple { 0%,100%{transform:scale(1);opacity:0.3} 50%{transform:scale(1.15);opacity:0.6} }
+    @keyframes star-twinkle { 0%,100%{opacity:0.4} 50%{opacity:1} }
+    @keyframes particle-trail-flow { 0%,100%{transform:translateX(0)} 50%{transform:translateX(4px)} }
+    @keyframes particle-orbit { 0%{transform:rotate(0deg) translateX(18px) rotate(0deg)} 100%{transform:rotate(360deg) translateX(18px) rotate(-360deg)} }
+    @keyframes data-pulse { 0%,100%{transform:scale(0.6);opacity:0.3} 50%{transform:scale(1.4);opacity:0.8} }
+
+    html,body,.app { height:100%; overflow:hidden; margin:0; }
+    .app { padding:8px 12px; }
+    .grid { gap:8px; }
+    .panel { padding:10px 12px; }
+    .panel-head { margin-bottom:6px; }
+    .panel-title { font-size:14px; }
+    .hero-metrics { gap:12px; margin:4px 0; }
+    .metric strong { font-size:18px; }
+    .signal-line { padding-top:2px; }
+    .gauge-stack { gap:8px; margin-bottom:6px; }
+    .metric-list { gap:4px 10px; margin-bottom:6px; }
+    .chart-grid canvas { height:92px; }
+    .json-view { max-height:118px; }
+    .schema-list { max-height:118px; }
+    .profiles-list { max-height:118px; }
+    .bench-results { height:92px; }
+    .bench-history { height:118px; }
+    .chat-messages { max-height:92px; min-height:60px; }
+    .mcp-grid { gap:6px; }
+    .update-bar { margin-top:4px; }
   </style>
 </head>
 <body>
   <div class="app">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-icon">◆</span>
-        <span class="brand-text"><strong>DS4</strong> Dwarfstar Control</span>
+        <svg class="dwarfstar-logo" width="28" height="28" viewBox="0 0 200 200" aria-hidden="true">
+          <defs>
+            <radialGradient id="wdGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
+              <stop offset="15%" stop-color="#cceeff" stop-opacity="0.8"/>
+              <stop offset="40%" stop-color="#00ccff" stop-opacity="0.3"/>
+              <stop offset="70%" stop-color="#00ff41" stop-opacity="0.1"/>
+              <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+            </radialGradient>
+            <radialGradient id="lensingRing" cx="50%" cy="50%" r="50%">
+              <stop offset="60%" stop-color="#00ff41" stop-opacity="0"/>
+              <stop offset="70%" stop-color="#00ff41" stop-opacity="0.15"/>
+              <stop offset="75%" stop-color="#00ff41" stop-opacity="0.3"/>
+              <stop offset="80%" stop-color="#00ff41" stop-opacity="0.15"/>
+              <stop offset="85%" stop-color="#00ff41" stop-opacity="0"/>
+              <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="accretionDisk" x1="0%" y1="50%" x2="100%" y2="50%">
+              <stop offset="0%" stop-color="#00d4ff" stop-opacity="0"/>
+              <stop offset="20%" stop-color="#00d4ff" stop-opacity="0.4"/>
+              <stop offset="35%" stop-color="#00ff41" stop-opacity="0.6"/>
+              <stop offset="50%" stop-color="#00ff41" stop-opacity="0.8"/>
+              <stop offset="65%" stop-color="#00ff41" stop-opacity="0.6"/>
+              <stop offset="80%" stop-color="#00d4ff" stop-opacity="0.4"/>
+              <stop offset="100%" stop-color="#00d4ff" stop-opacity="0"/>
+            </linearGradient>
+            <filter id="starGlow"><feGaussianBlur stdDeviation="0.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <!-- Core -->
+          <circle class="core" cx="100" cy="100" r="22" fill="url(#wdGlow)"/>
+          <!-- Corona -->
+          <circle class="corona" cx="100" cy="100" r="34" fill="none" stroke="#00ff41" stroke-width="3" opacity="0.6"/>
+          <!-- Accretion disk -->
+          <ellipse class="accretion-disk" cx="100" cy="100" rx="72" ry="18" fill="url(#accretionDisk)" opacity="0.85"/>
+          <ellipse class="disk-inner" cx="100" cy="100" rx="48" ry="10" fill="url(#accretionDisk)" opacity="0.7"/>
+          <!-- Lensing rings -->
+          <g class="lensing-rings">
+            <circle cx="100" cy="100" r="52" fill="none" stroke="#00ff41" stroke-width="1.5" opacity="0.3"/>
+            <circle cx="100" cy="100" r="60" fill="none" stroke="#00ff41" stroke-width="1" opacity="0.2"/>
+          </g>
+          <!-- Starfield -->
+          <g class="starfield-deep" opacity="0.5">
+            <circle cx="38" cy="44" r="1.2"/><circle cx="158" cy="36" r="1"/><circle cx="72" cy="162" r="1.1"/>
+            <circle cx="164" cy="148" r="0.9"/><circle cx="26" cy="122" r="1.3"/>
+          </g>
+          <g class="starfield-near" opacity="0.85">
+            <circle cx="54" cy="68" r="1.4"/><circle cx="142" cy="82" r="1.2"/><circle cx="88" cy="148" r="1.3"/>
+          </g>
+          <!-- Particle trail -->
+          <g class="particle-trail" opacity="0.7">
+            <circle class="particle" cx="100" cy="100" r="1.6" fill="#00ff41"/>
+            <circle class="particle" cx="100" cy="100" r="1.3" fill="#00d4ff"/>
+          </g>
+          <!-- Data pulse ring (shown when engine running) -->
+          <circle class="data-pulse-ring" cx="100" cy="100" r="46" fill="none" stroke="#00ff41" stroke-width="2" opacity="0"/>
+        </svg>
+        <span class="brand-text"><strong>DS4</strong> Dwarfstar</span>
       </div>
       <div class="topbar-info">
         <span class="endpoint" id="endpoint">127.0.0.1:8001</span>
@@ -54,7 +145,6 @@
           <h2 class="panel-title">Monitoring</h2>
           <span class="panel-accent" id="memory-pressure">--</span>
         </div>
-
         <div class="gauge-stack">
           <div class="gauge">
             <div class="gauge-row"><span>Memory</span><strong id="memory-used">--</strong></div>
@@ -75,7 +165,6 @@
             </div>
           </div>
         </div>
-
         <dl class="metric-list">
           <div><dt>CPU</dt><dd id="cpu-usage">--</dd></div>
           <div><dt>GPU</dt><dd id="gpu-usage">--</dd></div>
@@ -84,10 +173,9 @@
           <div><dt>Process</dt><dd id="process-id">--</dd></div>
           <div><dt>Uptime</dt><dd id="uptime">--</dd></div>
         </dl>
-
         <div class="chart-grid">
-          <canvas id="tokens-chart" width="520" height="132"></canvas>
-          <canvas id="system-chart" width="520" height="132"></canvas>
+          <canvas id="tokens-chart" width="520" height="92"></canvas>
+          <canvas id="system-chart" width="520" height="92"></canvas>
         </div>
       </section>
 
@@ -109,7 +197,7 @@
               <input type="text" id="config-edit-key" placeholder="key" spellcheck="false">
               <input type="text" id="config-edit-value" placeholder="value" spellcheck="false">
               <button id="config-save-btn">Save</button>
-              <button id="config-apply-btn">Apply & Restart</button>
+              <button id="config-apply-btn">Apply &amp; Restart</button>
             </div>
             <div class="restart-bar">
               <button id="restart-ds4-btn">Restart DS4</button>
@@ -158,7 +246,7 @@
           </div>
           <div class="model-selector">
             <select id="model-select" aria-label="Available GGUF models"></select>
-            <button id="switch-model-btn">Switch & Restart</button>
+            <button id="switch-model-btn">Switch &amp; Restart</button>
             <div class="model-desc" id="model-option-details"></div>
           </div>
         </div>
@@ -191,7 +279,7 @@
         <div class="bench-history">
           <h3>Benchmark History</h3>
           <span id="bench-history-status">No history loaded.</span>
-          <canvas id="benchmark-history-chart" height="180"></canvas>
+          <canvas id="benchmark-history-chart" height="118"></canvas>
         </div>
       </section>
 
@@ -237,6 +325,6 @@
       </section>
     </main>
   </div>
-  <script src="/static/dashboard.js?v=2" defer></script>
+  <script src="/static/dashboard.js?v=3" defer></script>
 </body>
 </html>
