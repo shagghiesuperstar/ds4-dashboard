@@ -517,13 +517,27 @@ class DS4ConfigManager:
                 return value
             return str(value).strip().lower() in {"1", "true", "yes", "on", "enabled", "enable"}
         if option_type == "int":
-            if isinstance(value, int) and not isinstance(value, bool):
+            if isinstance(value, bool):
+                # bool is an int subclass; only accept as a real int
+                return None
+            if isinstance(value, int):
                 return value
-            return int(float(str(value).strip()))
+            try:
+                return int(float(str(value).strip()))
+            except (TypeError, ValueError):
+                # Unparseable default in --help text (e.g. "Default max ..."
+                # where the word after "Default" is "max", not a number).
+                # Fall back to None so the schema still loads.
+                return None
         if option_type == "float":
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if isinstance(value, bool):
+                return None
+            if isinstance(value, (int, float)):
                 return float(value)
-            return float(str(value).strip())
+            try:
+                return float(str(value).strip())
+            except (TypeError, ValueError):
+                return None
         if option_type == "path":
             return str(Path(str(value)).expanduser())
         return str(value)
