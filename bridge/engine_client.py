@@ -296,7 +296,7 @@ class DS4EngineClient:
             telemetry,
             ("prefill_ms", "prefill_latency_ms", "prompt_ms", "prompt_eval_ms"),
         )
-        uptime = self._first_number(telemetry, ("uptime_seconds", "uptime_sec", "uptime"))
+        uptime = self._first_number(telemetry, ("uptime_seconds", "uptime_s", "uptime_sec", "uptime"))
         kv_cache = self._normalize_kv_cache(telemetry)
 
         normalized = {
