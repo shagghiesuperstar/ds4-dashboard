@@ -43,8 +43,8 @@ DS4_KV_CACHE = Path(os.environ.get("DS4_KV_CACHE", "/Volumes/OWC_MODELS_TB5/DS4/
 
 DS4_PRIMARY_HOST = os.environ.get("DS4_PRIMARY_HOST", "127.0.0.1")
 DS4_PRIMARY_PORT = int(os.environ.get("DS4_PRIMARY_PORT", "8001"))
-DS4_TELEM_URL = os.environ.get("DS4_TELEM_URL", f"http://{DS4_PRIMARY_HOST}:{DS4_PRIMARY_PORT}/telem")
-DS4_METRICS_URL = os.environ.get("DS4_METRICS_URL", f"http://{DS4_PRIMARY_HOST}:{DS4_PRIMARY_PORT}/metrics")
+DS4_TELEM_URL = os.environ.get("DS4_TELEM_URL", f"http://{DS4_PRIMARY_HOST}:{DS4_PRIMARY_PORT}/health")
+DS4_METRICS_URL = os.environ.get("DS4_METRICS_URL", "")  # unused; /health is self-contained
 DS4_COMPLETION_URL = os.environ.get(
     "DS4_COMPLETION_URL",
     f"http://{DS4_PRIMARY_HOST}:{DS4_PRIMARY_PORT}/v1/chat/completions",

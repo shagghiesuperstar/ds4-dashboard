@@ -26,7 +26,6 @@ class EngineClientConfig:
 class DS4EngineClient:
     def __init__(self, config: EngineClientConfig) -> None:
         self.config = config
-        self.metrics_url = config.metrics_url or self._derive_metrics_url(config.telem_url)
         self.completion_url = config.completion_url or f"http://{config.host}:{config.port}/v1/chat/completions"
         self._telemetry_supported: bool | None = None  # None = untested, True/False = cached
         self._model_averages_provider: Optional[Callable[[], Dict[str, Any]]] = None
@@ -102,29 +101,13 @@ class DS4EngineClient:
         }
 
     def get_raw_telemetry(self) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
-        candidates = [self.config.telem_url]
-        if self.metrics_url not in candidates:
-            candidates.append(self.metrics_url)
-
-        errors: list[str] = []
-        merged: Dict[str, Any] = {}
-        saw_payload = False
-        for url in candidates:
-            payload, error = self._fetch_json_url(url)
-            if error:
-                errors.append(f"{url}: {error}")
-                continue
-            if payload is None:
-                continue
-            saw_payload = True
-            if isinstance(payload, dict):
-                merged.update(payload)
-            else:
-                merged[url.rsplit("/", 1)[-1] or "value"] = payload
-
-        if saw_payload:
-            return merged, None
-        return None, "; ".join(errors) if errors else None
+        # Single source: /health endpoint (PR #374). No metrics fallback needed.
+        payload, error = self._fetch_json_url(self.config.telem_url)
+        if error:
+            return None, error
+        if payload is None:
+            return None, None
+        return payload if isinstance(payload, dict) else {"value": payload}, None
 
     def generate(
         self,
@@ -418,7 +401,4 @@ class DS4EngineClient:
             return 0
         return max(1, int(len(text.split()) * 1.35))
 
-    def _derive_metrics_url(self, telem_url: str) -> str:
-        if telem_url.endswith("/telem"):
-            return f"{telem_url[:-6]}/metrics"
-        return telem_url.rstrip("/") + "/metrics"
+    # Removed: _derive_metrics_url — no longer needed since /health is self-contained

@@ -219,7 +219,7 @@ The dashboard reads these environment variables (or uses sensible defaults):
 |---------------------|------------------|---------------------------------|
 | `DS4_HOME`          | `~/ds4`          | Directory containing ds4-server |
 | `DS4_PRIMARY_PORT`  | `8001`           | DS4 inference port              |
-| `DS4_TELEM_URL`     | `http://127.0.0.1:8001/telem` | Telemetry endpoint     |
+| `DS4_TELEM_URL`     | `http://127.0.0.1:8001/health` | Telemetry endpoint (PR #374) |
 | `DS4_LAUNCHD_LABEL` | `com.ds4.engine` | launchd service label          |
 
 ---
@@ -264,4 +264,4 @@ Built for the DS4 inference engine ecosystem. Designed to be a clean, profession
 
 ---
 
-*Last updated: 2026-06-01*
+*Last updated: 2026-06-12*
